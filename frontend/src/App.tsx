@@ -1,15 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { View, Task } from "./types";
 import { TaskList } from "./components/TaskList";
-import { ScheduleSheet } from "./components/ScheduleSheet";
+import { TaskDetail } from "./components/TaskDetail";
 import { TodaySchedule } from "./components/TodaySchedule";
 
 export default function App() {
-  const [view, setView] = useState<View>("tasks");
+  const [view, setView] = useState<View>("today");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Clear toast after 3 seconds
   useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(null), 3000);
@@ -17,32 +17,41 @@ export default function App() {
     }
   }, [toast]);
 
-  const handleScheduled = (msg: string, ok: boolean) => {
+  const handleToast = useCallback((msg: string, ok: boolean) => {
     setToast({ msg, ok });
-  };
+  }, []);
+
+  const handleMutated = useCallback((msg: string, ok: boolean) => {
+    setToast({ msg, ok });
+    if (ok) setRefreshKey((k) => k + 1);
+  }, []);
 
   return (
     <div className="app">
+      {view === "today" && (
+        <TodaySchedule
+          onSelectTask={setSelectedTask}
+          onToast={handleToast}
+          refreshKey={refreshKey}
+        />
+      )}
+
       {view === "tasks" && (
         <>
           <div className="app-header">
             <h1>📋 Tasks</h1>
           </div>
-          <TaskList onSchedule={(task) => setSelectedTask(task)} />
+          <TaskList
+            onSelectTask={setSelectedTask}
+            onToast={handleToast}
+            refreshKey={refreshKey}
+            onRefreshed={() => {}}
+          />
         </>
       )}
 
-      {view === "today" && <TodaySchedule />}
-
       {/* Bottom tab bar */}
       <nav className="tab-bar">
-        <button
-          className={`tab ${view === "tasks" ? "active" : ""}`}
-          onClick={() => setView("tasks")}
-        >
-          <span className="tab-icon">📋</span>
-          Tasks
-        </button>
         <button
           className={`tab ${view === "today" ? "active" : ""}`}
           onClick={() => setView("today")}
@@ -50,14 +59,21 @@ export default function App() {
           <span className="tab-icon">📅</span>
           Today
         </button>
+        <button
+          className={`tab ${view === "tasks" ? "active" : ""}`}
+          onClick={() => setView("tasks")}
+        >
+          <span className="tab-icon">📋</span>
+          Tasks
+        </button>
       </nav>
 
-      {/* Schedule bottom sheet */}
+      {/* Task detail sheet */}
       {selectedTask && (
-        <ScheduleSheet
+        <TaskDetail
           task={selectedTask}
           onClose={() => setSelectedTask(null)}
-          onScheduled={handleScheduled}
+          onMutated={handleMutated}
         />
       )}
 

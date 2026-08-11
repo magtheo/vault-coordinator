@@ -1,21 +1,54 @@
-// ─── Types matching coordinator API responses ─────────────────────────
+// ─── Types matching coordinator enriched API responses ─────────────────
+
+export interface Capabilities {
+  edit: boolean;
+  complete: boolean;
+  reopen: boolean;
+  schedule: boolean;
+  set_deadline: boolean;
+  set_priority: boolean;
+  set_project: boolean;
+  open_source: boolean;
+}
+
+export interface Provenance {
+  repo_id: string | null;
+  repo_name: string | null;
+  branch: string | null;
+  commit: string | null;
+  dirty: boolean | null;
+}
 
 export interface Task {
   id: string;
-  alias: string;
+  ref: string;
+  kind: string;          // "vikunja_task" | "repo_task"
   title: string;
-  source: string;      // "vikunja" | "git"
-  type: string;        // "vikunja_task" | "repo_task"
+  source: string;        // "vikunja" | "git"
+  source_status: string | null;
+  project_ref: string | null;
+  freshness: string;     // "fresh" | "stale" | "error" | "unknown"
+  scheduled: boolean;
+  capabilities: Capabilities;
+  priority: number | null;
+  due_date: string | null;
+  is_favorite: boolean | null;
+  description: string | null;
+  provenance: Provenance | null;
   last_synced: string;
   raw?: Record<string, unknown> | null;
 }
 
+export interface SyncStatusEntry {
+  last_success: string | null;
+  consecutive_failures: number;
+  last_error: string | null;
+  freshness: string;
+}
+
 export interface TasksResponse {
   tasks: Task[];
-  sync_status: Record<string, {
-    last_success: string | null;
-    consecutive_failures: number;
-  }>;
+  sync_status: Record<string, SyncStatusEntry>;
 }
 
 export interface ScheduleResponse {
@@ -40,10 +73,39 @@ export interface TodayResponse {
 }
 
 export interface SyncResponse {
-  vikunja?: { synced: number; errors: string[] };
-  git?: { synced: number; errors: string[] };
+  results: Record<string, { status: string; tasks?: number; error?: string }>;
+}
+
+export interface Mutation {
+  id: string;
+  entity_alias: string | null;
+  operation: string;
+  status: "pending" | "confirmed" | "failed";
+  payload: string | null;
+  result: string | null;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface MutationResponse {
+  mutation: Mutation;
+  task_alias?: string;
+  task?: Record<string, unknown>;
+}
+
+export interface Project {
+  ref: string;
+  name: string;
+  source: string;
+  project_id: number | null;
+  kind: string;
+}
+
+export interface ProjectsResponse {
+  projects: Project[];
 }
 
 // ─── View state ────────────────────────────────────────────────────────
 
-export type View = "tasks" | "today";
+export type View = "today" | "tasks";

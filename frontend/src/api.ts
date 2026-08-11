@@ -3,6 +3,8 @@ import type {
   ScheduleResponse,
   TodayResponse,
   SyncResponse,
+  MutationResponse,
+  ProjectsResponse,
 } from "./types";
 
 const API = "/api";
@@ -22,32 +24,104 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return resp.json();
 }
 
-export function getTasks(source?: string): Promise<TasksResponse> {
-  const params = source ? `?source=${source}` : "";
-  return fetchJson<TasksResponse>(`${API}/tasks${params}`);
+function jsonBody(method: string, body: unknown): RequestInit {
+  return {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+}
+
+function uuid(): string {
+  return crypto.randomUUID();
+}
+
+// ─── Read endpoints ────────────────────────────────────────────────────
+
+export function getTasks(source?: string, scheduled?: boolean): Promise<TasksResponse> {
+  const params = new URLSearchParams();
+  if (source) params.set("source", source);
+  if (scheduled !== undefined) params.set("scheduled", String(scheduled));
+  const qs = params.toString();
+  return fetchJson<TasksResponse>(`${API}/tasks${qs ? `?${qs}` : ""}`);
 }
 
 export function getToday(): Promise<TodayResponse> {
   return fetchJson<TodayResponse>(`${API}/schedule/today`);
 }
 
+export function getProjects(): Promise<ProjectsResponse> {
+  return fetchJson<ProjectsResponse>(`${API}/projects`);
+}
+
+// ─── Write endpoints — Vikunja mutations ───────────────────────────────
+
+export function createTask(opts: {
+  title: string;
+  project_id?: number;
+  priority?: number;
+  due_date?: string;
+  description?: string;
+}): Promise<MutationResponse> {
+  return fetchJson<MutationResponse>(
+    `${API}/tasks`,
+    jsonBody("POST", { request_id: uuid(), ...opts }),
+  );
+}
+
+export function editTask(
+  alias: string,
+  fields: {
+    title?: string;
+    priority?: number;
+    due_date?: string;
+    project_id?: number;
+    description?: string;
+  },
+): Promise<MutationResponse> {
+  return fetchJson<MutationResponse>(
+    `${API}/tasks/${encodeURIComponent(alias)}`,
+    jsonBody("PATCH", { request_id: uuid(), ...fields }),
+  );
+}
+
+export function completeTask(alias: string): Promise<MutationResponse> {
+  return fetchJson<MutationResponse>(
+    `${API}/tasks/${encodeURIComponent(alias)}/complete`,
+    jsonBody("POST", { request_id: uuid() }),
+  );
+}
+
+export function reopenTask(alias: string): Promise<MutationResponse> {
+  return fetchJson<MutationResponse>(
+    `${API}/tasks/${encodeURIComponent(alias)}/reopen`,
+    jsonBody("POST", { request_id: uuid() }),
+  );
+}
+
+// ─── Schedule endpoints ────────────────────────────────────────────────
+
 export function scheduleTask(
   entityAlias: string,
   start: string,
   durationMinutes: number,
 ): Promise<ScheduleResponse> {
-  const requestId = crypto.randomUUID();
-  return fetchJson<ScheduleResponse>(`${API}/schedule`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      request_id: requestId,
+  return fetchJson<ScheduleResponse>(
+    `${API}/schedule`,
+    jsonBody("POST", {
+      request_id: uuid(),
       entity_alias: entityAlias,
       start,
       duration_minutes: durationMinutes,
     }),
-  });
+  );
 }
+
+export function deleteBlock(eventUid: string): Promise<unknown> {
+  return fetchJson(`${API}/schedule/${encodeURIComponent(eventUid)}`, { method: "DELETE" });
+}
+
+// ─── Sync ──────────────────────────────────────────────────────────────
 
 export function triggerSync(): Promise<SyncResponse> {
   return fetchJson<SyncResponse>(`${API}/sync`, { method: "POST" });

@@ -336,3 +336,158 @@ def get_sync_state(db: sqlite3.Connection, source_system: str) -> dict | None:
         "SELECT * FROM sync_state WHERE source_system = ?", (source_system,)
     ).fetchone()
     return dict(row) if row else None
+
+
+def get_all_sync_states(db: sqlite3.Connection) -> dict[str, dict]:
+    rows = db.execute("SELECT * FROM sync_state").fetchall()
+    return {row["source_system"]: dict(row) for row in rows}
+
+
+# ─── Freshness ───────────────────────────────────────────────────────────
+
+
+def get_freshness(db: sqlite3.Connection, source_system: str) -> str:
+    """Determine freshness for a source system.
+
+    Returns: 'fresh' | 'stale' | 'error'
+    - 'fresh': last sync succeeded
+    - 'stale': has succeeded before but recent failures
+    - 'error': never succeeded
+    """
+    state = get_sync_state(db, source_system)
+    if not state:
+        return "error"
+    if state.get("consecutive_failures", 0) > 0:
+        if state.get("last_success"):
+            return "stale"
+        return "error"
+    return "fresh"
+
+
+# ─── Scheduled status ───────────────────────────────────────────────────
+
+
+def is_scheduled(db: sqlite3.Connection, entity_alias: str) -> bool:
+    """Check if an entity has an active schedule relationship."""
+    entity = get_entity_by_alias(db, entity_alias)
+    if not entity:
+        return False
+    rels = get_relationships(
+        db, entity_id=entity["id"], rel_type="schedules", state="active"
+    )
+    return len(rels) > 0
+
+
+def get_scheduled_aliases(db: sqlite3.Connection) -> set[str]:
+    """Return set of entity aliases that have active schedule relationships."""
+    rows = db.execute(
+        """
+        SELECT DISTINCT e.external_alias
+        FROM relationships r
+        JOIN entities e ON r.source_id = e.id
+        WHERE r.rel_type = 'schedules' AND r.state = 'active'
+        """
+    ).fetchall()
+    return {row["external_alias"] for row in rows}
+
+
+# ─── Mutation tracking ──────────────────────────────────────────────────
+
+
+def record_mutation(
+    db: sqlite3.Connection,
+    mutation_id: str,
+    entity_alias: str | None,
+    operation: str,
+    payload: dict | None = None,
+) -> dict:
+    """Record a pending mutation. Returns the mutation record."""
+    db.execute(
+        """
+        INSERT INTO mutations (id, entity_alias, operation, status, payload, created_at)
+        VALUES (?, ?, ?, 'pending', ?, ?)
+        """,
+        (
+            mutation_id,
+            entity_alias,
+            operation,
+            json.dumps(payload) if payload else None,
+            _now_iso(),
+        ),
+    )
+    db.commit()
+    row = db.execute(
+        "SELECT * FROM mutations WHERE id = ?", (mutation_id,)
+    ).fetchone()
+    return dict(row)
+
+
+def complete_mutation(
+    db: sqlite3.Connection,
+    mutation_id: str,
+    success: bool,
+    result: dict | None = None,
+    error: str | None = None,
+) -> dict:
+    """Mark a mutation as confirmed or failed."""
+    status = "confirmed" if success else "failed"
+    result_json = json.dumps(result) if result else None
+    db.execute(
+        """
+        UPDATE mutations
+        SET status = ?, result = ?, error = ?, completed_at = ?
+        WHERE id = ?
+        """,
+        (status, result_json, error, _now_iso(), mutation_id),
+    )
+    db.commit()
+    row = db.execute(
+        "SELECT * FROM mutations WHERE id = ?", (mutation_id,)
+    ).fetchone()
+    return dict(row)
+
+
+def get_mutation(db: sqlite3.Connection, mutation_id: str) -> dict | None:
+    row = db.execute(
+        "SELECT * FROM mutations WHERE id = ?", (mutation_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+# ─── Entity tombstones ──────────────────────────────────────────────────
+
+
+def create_tombstone(
+    db: sqlite3.Connection,
+    external_alias: str,
+    entity_type: str | None = None,
+    source_system: str | None = None,
+    reason: str = "deleted_upstream",
+) -> None:
+    """Record that an entity was deleted from its authoritative source."""
+    db.execute(
+        """
+        INSERT OR REPLACE INTO entity_tombstones
+            (external_alias, entity_type, source_system, tombstoned_at, reason)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (external_alias, entity_type, source_system, _now_iso(), reason),
+    )
+    # Remove from active entities
+    db.execute(
+        "DELETE FROM entities WHERE external_alias = ?", (external_alias,)
+    )
+    db.commit()
+
+
+def is_tombstoned(db: sqlite3.Connection, external_alias: str) -> bool:
+    row = db.execute(
+        "SELECT 1 FROM entity_tombstones WHERE external_alias = ?",
+        (external_alias,),
+    ).fetchone()
+    return row is not None
+
+
+def list_tombstones(db: sqlite3.Connection) -> list[dict]:
+    rows = db.execute("SELECT * FROM entity_tombstones").fetchall()
+    return [dict(r) for r in rows]

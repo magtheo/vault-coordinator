@@ -1,4 +1,4 @@
-"""Vikunja adapter — read tasks, sync to entity projections."""
+"""Vikunja adapter — read tasks, write commands, sync to entity projections."""
 from __future__ import annotations
 
 import sqlite3
@@ -48,18 +48,101 @@ async def sync_vikunja(
         raise
 
 
+# ─── Write commands — route to Vikunja API as authoritative owner ──────
+
+
+async def create_task(
+    vikunja_url: str,
+    vikunja_token: str,
+    title: str,
+    project_id: int = 1,
+    priority: int | None = None,
+    due_date: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Create a task in Vikunja. Returns the created task from authoritative API."""
+    payload: dict = {"title": title, "project_id": project_id}
+    if priority is not None:
+        payload["priority"] = priority
+    if due_date:
+        payload["due_date"] = due_date
+    if description:
+        payload["description"] = description
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            f"{vikunja_url}/projects/{project_id}/tasks",
+            headers={"Authorization": f"Bearer {vikunja_token}"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def update_task(
+    vikunja_url: str,
+    vikunja_token: str,
+    task_id: int,
+    fields: dict,
+) -> dict:
+    """Update fields on a Vikunja task. Returns the updated task.
+
+    Vikunja uses POST to /tasks/{id} for partial updates.
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{vikunja_url}/tasks/{task_id}",
+            headers={"Authorization": f"Bearer {vikunja_token}"},
+            json=fields,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def complete_task(
     vikunja_url: str,
     vikunja_token: str,
     task_id: int,
 ) -> dict:
-    """Send command to Vikunja API to mark task done.
-    This writes to the authoritative owner — not our cache."""
+    """Mark a Vikunja task as done."""
+    return await update_task(vikunja_url, vikunja_token, task_id, {"done": True})
+
+
+async def reopen_task(
+    vikunja_url: str,
+    vikunja_token: str,
+    task_id: int,
+) -> dict:
+    """Mark a Vikunja task as not done."""
+    return await update_task(vikunja_url, vikunja_token, task_id, {"done": False})
+
+
+async def delete_task(
+    vikunja_url: str,
+    vikunja_token: str,
+    task_id: int,
+) -> None:
+    """Delete a task from Vikunja."""
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
+        resp = await client.delete(
             f"{vikunja_url}/tasks/{task_id}",
             headers={"Authorization": f"Bearer {vikunja_token}"},
-            json={"done": True},
+        )
+        resp.raise_for_status()
+
+
+# ─── Projects ──────────────────────────────────────────────────────────
+
+
+async def fetch_projects(
+    vikunja_url: str,
+    vikunja_token: str,
+) -> list[dict]:
+    """Fetch all projects from Vikunja."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{vikunja_url}/projects",
+            headers={"Authorization": f"Bearer {vikunja_token}"},
         )
         resp.raise_for_status()
         return resp.json()

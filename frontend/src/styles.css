@@ -421,3 +421,239 @@ html, body {
   font-size: 0.85rem;
   padding: 12px 16px;
 }
+
+/* ── Quick capture ──────────────────────────────────────────────────── */
+
+.quick-capture-trigger {
+  padding: 12px 16px;
+  color: var(--accent);
+  font-size: 0.9rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+}
+
+.quick-capture-trigger:active {
+  background: var(--bg-card-hover);
+}
+
+.capture-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+
+.capture-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.95rem;
+  outline: none;
+  min-height: 44px;
+}
+
+.capture-input:focus {
+  border-color: var(--accent);
+}
+
+.btn-sm {
+  padding: 8px 14px !important;
+  min-height: 40px !important;
+  font-size: 0.85rem !important;
+}
+
+/* ── Search bar with filter ─────────────────────────────────────────── */
+
+.search-bar {
+  padding: 8px 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.search-bar input {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.search-bar input:focus {
+  border-color: var(--accent);
+}
+
+.filter-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 40px;
+}
+
+.filter-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Task list enhancements ─────────────────────────────────────────── */
+
+.task-item.scheduled {
+  opacity: 0.6;
+}
+
+.check-icon {
+  color: var(--success);
+}
+
+.sync-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 8px;
+}
+
+.sync-dot.error { background: var(--danger); }
+
+.freshness-text { color: var(--danger); font-size: 0.7rem; }
+.freshness-text.stale { color: #e8a838; }
+
+/* ── Task detail sheet ──────────────────────────────────────────────── */
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.detail-title-input {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+  outline: none;
+}
+
+.detail-title-input:focus {
+  border-color: var(--accent);
+}
+
+.detail-input {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.95rem;
+  outline: none;
+  margin-bottom: 12px;
+}
+
+.detail-input:focus {
+  border-color: var(--accent);
+}
+
+.provenance-info {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+.dirty-badge {
+  color: #e8a838;
+  font-weight: 500;
+}
+
+.freshness-badge {
+  font-size: 0.7rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--danger);
+  color: #fff;
+}
+
+.freshness-badge.stale { background: #e8a838; }
+
+.scheduled-badge {
+  color: var(--success);
+  font-size: 0.7rem;
+}
+
+.detail-info {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.85rem;
+}
+
+.info-label {
+  color: var(--text-dim);
+}
+
+.info-value {
+  color: var(--text);
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-complete {
+  flex: 1;
+  padding: 14px;
+  background: var(--success);
+  border: none;
+  border-radius: var(--radius);
+  color: #1a1a1a;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 48px;
+}
+
+.btn-complete:active { opacity: 0.85; }
+.btn-complete:disabled { opacity: 0.5; }
+
+/* ── Today section ──────────────────────────────────────────────────── */
+
+.today-section {
+  margin-top: 4px;
+}
+
+.today-section .section-label {
+  padding: 8px 16px 4px;
+  margin: 0;
+}

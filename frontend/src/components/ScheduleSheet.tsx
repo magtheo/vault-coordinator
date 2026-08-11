@@ -65,7 +65,7 @@ export function ScheduleSheet({ task, onClose, onScheduled }: Props) {
     if (!startStr) return;
     setSubmitting(true);
     try {
-      const resp = await scheduleTask(task.alias, startStr, duration);
+      const resp = await scheduleTask(task.ref, startStr, duration);
       onScheduled(`✅ Scheduled: ${formatRange()}`, true);
       onClose();
     } catch (e) {
@@ -92,7 +92,7 @@ export function ScheduleSheet({ task, onClose, onScheduled }: Props) {
       <div className="sheet">
         <div className="sheet-handle" />
         <div className="sheet-title">{task.title}</div>
-        <div className="sheet-subtitle">{task.alias}</div>
+        <div className="sheet-subtitle">{task.ref}</div>
 
         <div className="section-label">Start</div>
         <div className="option-grid">

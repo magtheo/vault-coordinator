@@ -78,3 +78,28 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     response TEXT,                   -- JSON of the stored response
     created_at TEXT NOT NULL
 );
+
+-- Mutation log — tracks pending → confirmed/failed state of user commands
+CREATE TABLE IF NOT EXISTS mutations (
+    id TEXT PRIMARY KEY,             -- client-generated request_id (UUID)
+    entity_alias TEXT,               -- target entity alias (nullable for create)
+    operation TEXT NOT NULL,         -- create | complete | reopen | edit | schedule | delete | move
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending | confirmed | failed
+    payload TEXT,                    -- JSON of the request that was sent
+    result TEXT,                     -- JSON of the authoritative response (on success)
+    error TEXT,                      -- error message (on failure)
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_mutations_entity ON mutations(entity_alias);
+CREATE INDEX IF NOT EXISTS idx_mutations_status ON mutations(status);
+
+-- Entity tombstones — distinguish "deleted upstream" from "temporarily unavailable"
+CREATE TABLE IF NOT EXISTS entity_tombstones (
+    external_alias TEXT PRIMARY KEY,
+    entity_type TEXT,
+    source_system TEXT,
+    tombstoned_at TEXT NOT NULL DEFAULT (datetime('now')),
+    reason TEXT                      -- 'deleted_upstream' | 'manual' | 'orphaned'
+);
