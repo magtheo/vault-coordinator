@@ -1,0 +1,29 @@
+coordinator:
+  port: 8650
+  database: coordinator.db
+
+vikunja:
+  url: "http://127.0.0.1:3456/api/v1"
+  token: "${VIKUNJA_TOKEN}"
+
+radicale:
+  url: "http://127.0.0.1:5232"
+  username: "user"
+  password: "${RADICALE_PASSWORD}"
+  calendar: "vault-time-blocks"
+
+ntfy:
+  url: "http://127.0.0.1:8090"
+  topic: "vault-reminders"
+  username: "user"
+  password: "${NTFY_PASSWORD}"
+
+repos:
+  - id: "evershift"
+    name: "Evershift"
+    path: "/home/user/Documents/repos/Evershift"
+  - id: "dev-server"
+    name: "dev-server"
+    path: "/home/user/Documents/repos/dev-server"
+
+sync_interval_seconds: 300

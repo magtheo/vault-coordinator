@@ -1,0 +1,317 @@
+"""
+Entity and Relationship model — the coordinator's own authoritative data.
+
+Entities are cached projections of external state (Vikunja tasks, repo tasks,
+calendar events). The coordinator NEVER edits entity.raw_data to change the
+underlying task — it sends commands to the owning system instead.
+
+Relationships are fully coordinator-owned: typed edges between entities that
+represent scheduling, implementation, or membership.
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+import uuid
+from datetime import datetime, timezone
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _uuid() -> str:
+    return str(uuid.uuid4())
+
+
+# ─── Entity CRUD ─────────────────────────────────────────────────────────
+
+
+def upsert_entity(
+    db: sqlite3.Connection,
+    entity_type: str,
+    external_alias: str,
+    display_name: str,
+    source_system: str,
+    raw_data: dict | None = None,
+    entity_id: str | None = None,
+) -> dict:
+    """Insert or update a projected entity. Returns the entity as dict.
+
+    This is a CACHE of authoritative state from an external system.
+    Never edit raw_data to change the task's real state — send a command
+    to the owning system instead.
+    """
+    eid = entity_id or _uuid()
+    now = _now_iso()
+    raw_json = json.dumps(raw_data) if raw_data else None
+
+    db.execute(
+        """
+        INSERT INTO entities (id, entity_type, external_alias, display_name, source_system, last_synced, raw_data)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(external_alias) DO UPDATE SET
+            display_name = excluded.display_name,
+            raw_data = excluded.raw_data,
+            last_synced = excluded.last_synced,
+            entity_type = excluded.entity_type,
+            source_system = excluded.source_system
+        """,
+        (eid, entity_type, external_alias, display_name, source_system, now, raw_json),
+    )
+    db.commit()
+
+    row = db.execute(
+        "SELECT * FROM entities WHERE external_alias = ?", (external_alias,)
+    ).fetchone()
+    return dict(row)
+
+
+def get_entity(db: sqlite3.Connection, entity_id: str) -> dict | None:
+    row = db.execute("SELECT * FROM entities WHERE id = ?", (entity_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_entity_by_alias(db: sqlite3.Connection, alias: str) -> dict | None:
+    row = db.execute(
+        "SELECT * FROM entities WHERE external_alias = ?", (alias,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_entities(
+    db: sqlite3.Connection,
+    entity_type: str | None = None,
+    source_system: str | None = None,
+) -> list[dict]:
+    query = "SELECT * FROM entities WHERE 1=1"
+    params: list = []
+    if entity_type:
+        query += " AND entity_type = ?"
+        params.append(entity_type)
+    if source_system:
+        query += " AND source_system = ?"
+        params.append(source_system)
+    query += " ORDER BY display_name"
+    rows = db.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ─── Relationship CRUD ───────────────────────────────────────────────────
+
+
+def create_relationship(
+    db: sqlite3.Connection,
+    rel_type: str,
+    source_id: str,
+    target_id: str,
+    metadata: dict | None = None,
+    created_by: str = "user",
+) -> dict:
+    """Create a typed relationship. This IS coordinator-owned data."""
+    rid = _uuid()
+    now = _now_iso()
+    meta_json = json.dumps(metadata) if metadata else None
+
+    db.execute(
+        """
+        INSERT INTO relationships (id, rel_type, source_id, target_id, state, created_at, created_by, metadata)
+        VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+        ON CONFLICT(source_id, target_id, rel_type) DO UPDATE SET
+            state = 'active',
+            metadata = excluded.metadata
+        """,
+        (rid, rel_type, source_id, target_id, now, created_by, meta_json),
+    )
+    db.commit()
+
+    row = db.execute(
+        "SELECT * FROM relationships WHERE source_id = ? AND target_id = ? AND rel_type = ?",
+        (source_id, target_id, rel_type),
+    ).fetchone()
+    return dict(row)
+
+
+def get_relationships(
+    db: sqlite3.Connection,
+    entity_id: str | None = None,
+    rel_type: str | None = None,
+    state: str = "active",
+    direction: str = "both",
+) -> list[dict]:
+    """Query relationships with optional filters.
+
+    direction: 'source' (outgoing), 'target' (incoming), 'both'
+    """
+    query = "SELECT * FROM relationships WHERE state = ?"
+    params: list = [state]
+
+    if entity_id:
+        if direction == "source":
+            query += " AND source_id = ?"
+            params.append(entity_id)
+        elif direction == "target":
+            query += " AND target_id = ?"
+            params.append(entity_id)
+        else:
+            query += " AND (source_id = ? OR target_id = ?)"
+            params.extend([entity_id, entity_id])
+
+    if rel_type:
+        query += " AND rel_type = ?"
+        params.append(rel_type)
+
+    rows = db.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_relationship_by_event_uid(db: sqlite3.Connection, event_uid: str) -> dict | None:
+    """Look up relationship by CalDAV VEVENT UID — the primary link.
+
+    The event_uid is stored in relationship metadata.
+    """
+    # Search in metadata JSON for event_uid
+    rows = db.execute(
+        """
+        SELECT * FROM relationships
+        WHERE state = 'active'
+        AND metadata LIKE ?
+        """,
+        (f'%"{event_uid}"%',),
+    ).fetchall()
+
+    for row in rows:
+        rel = dict(row)
+        meta = json.loads(rel.get("metadata") or "{}")
+        if meta.get("event_uid") == event_uid:
+            return rel
+    return None
+
+
+def check_relationship_health(db: sqlite3.Connection) -> list[dict]:
+    """Find relationships where target entity no longer exists.
+    Mark as 'broken'. Returns list of newly broken relationships."""
+    broken_rels = db.execute(
+        """
+        SELECT r.* FROM relationships r
+        LEFT JOIN entities e ON r.target_id = e.id
+        WHERE r.state = 'active' AND e.id IS NULL
+        """
+    ).fetchall()
+
+    newly_broken = []
+    for row in broken_rels:
+        rel = dict(row)
+        db.execute(
+            "UPDATE relationships SET state = 'broken' WHERE id = ?", (rel["id"],)
+        )
+        newly_broken.append(rel)
+
+    if newly_broken:
+        db.commit()
+
+    return newly_broken
+
+
+def tombstone_relationship(db: sqlite3.Connection, relationship_id: str) -> dict | None:
+    """Soft-delete: set state to 'archived'. Used when event is deleted."""
+    db.execute(
+        "UPDATE relationships SET state = 'archived' WHERE id = ?", (relationship_id,)
+    )
+    db.commit()
+    row = db.execute(
+        "SELECT * FROM relationships WHERE id = ?", (relationship_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+# ─── Alias Resolution ────────────────────────────────────────────────────
+
+
+def resolve_alias(db: sqlite3.Connection, alias: str) -> dict | None:
+    """Resolve short-form aliases to entity records.
+
+    Supported patterns:
+      Full:  "repo:evershift:task:T-012"
+             "vikunja:local:task:42"
+             "caldav:radicale:vault-time-blocks:event:<uid>"
+
+      Short: "evershift:T-012"     → repo:evershift:task:T-012
+             "vikunja:42"          → vikunja:local:task:42
+             "T-012"               → search all repos for T-012
+    """
+    # Try exact match first
+    entity = get_entity_by_alias(db, alias)
+    if entity:
+        return entity
+
+    # Pattern: "repo_id:task_id" → "repo:{repo_id}:task:{task_id}"
+    if ":" in alias and alias.count(":") == 1:
+        parts = alias.split(":", 1)
+        expanded = f"repo:{parts[0]}:task:{parts[1]}"
+        entity = get_entity_by_alias(db, expanded)
+        if entity:
+            return entity
+
+        # Try vikunja pattern: "vikunja:42" → "vikunja:local:task:42"
+        if parts[0] == "vikunja":
+            expanded = f"vikunja:local:task:{parts[1]}"
+            entity = get_entity_by_alias(db, expanded)
+            if entity:
+                return entity
+
+    # Pattern: bare "T-012" → search all repos
+    if alias.startswith("T-"):
+        rows = db.execute(
+            "SELECT * FROM entities WHERE external_alias LIKE ?",
+            (f"%:{alias}",),
+        ).fetchall()
+        if rows:
+            return dict(rows[0])
+
+    return None
+
+
+# ─── Sync State ──────────────────────────────────────────────────────────
+
+
+def update_sync_state(
+    db: sqlite3.Connection,
+    source_system: str,
+    success: bool,
+    error: str | None = None,
+) -> None:
+    now = _now_iso()
+    if success:
+        db.execute(
+            """
+            INSERT INTO sync_state (source_system, last_success, consecutive_failures)
+            VALUES (?, ?, 0)
+            ON CONFLICT(source_system) DO UPDATE SET
+                last_success = excluded.last_success,
+                consecutive_failures = 0,
+                last_error = NULL,
+                last_error_time = NULL
+            """,
+            (source_system, now),
+        )
+    else:
+        db.execute(
+            """
+            INSERT INTO sync_state (source_system, last_error, last_error_time, consecutive_failures)
+            VALUES (?, ?, ?, 1)
+            ON CONFLICT(source_system) DO UPDATE SET
+                last_error = excluded.last_error,
+                last_error_time = excluded.last_error_time,
+                consecutive_failures = sync_state.consecutive_failures + 1
+            """,
+            (source_system, error, now),
+        )
+    db.commit()
+
+
+def get_sync_state(db: sqlite3.Connection, source_system: str) -> dict | None:
+    row = db.execute(
+        "SELECT * FROM sync_state WHERE source_system = ?", (source_system,)
+    ).fetchone()
+    return dict(row) if row else None
