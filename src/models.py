@@ -225,6 +225,27 @@ def tombstone_relationship(db: sqlite3.Connection, relationship_id: str) -> dict
     return dict(row) if row else None
 
 
+def update_relationship_metadata(
+    db: sqlite3.Connection,
+    relationship_id: str,
+    updates: dict,
+) -> dict | None:
+    """Merge updates into a relationship's metadata JSON."""
+    row = db.execute(
+        "SELECT metadata FROM relationships WHERE id = ?", (relationship_id,)
+    ).fetchone()
+    if not row:
+        return None
+    meta = json.loads(row["metadata"] or "{}")
+    meta.update(updates)
+    db.execute(
+        "UPDATE relationships SET metadata = ? WHERE id = ?",
+        (json.dumps(meta), relationship_id),
+    )
+    db.commit()
+    return meta
+
+
 # ─── Alias Resolution ────────────────────────────────────────────────────
 
 

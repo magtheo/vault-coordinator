@@ -164,6 +164,19 @@ async def schedule(req: ScheduleRequest, request: Request, db=Depends(get_db)):
     )
     db.commit()
 
+    # 8. Schedule reminder at event start time
+    from src.reminders import schedule_reminder_for_event
+
+    await schedule_reminder_for_event(
+        db=db,
+        config=config,
+        event_uid=event_uid,
+        task_title=entity["display_name"],
+        start_iso=req.start,
+        duration_minutes=req.duration_minutes,
+        entity_id=entity["id"],
+    )
+
     return response_data
 
 
@@ -255,3 +268,154 @@ async def todays_schedule(request: Request, db=Depends(get_db)):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+@router.delete("/schedule/{event_uid}")
+async def delete_time_block(event_uid: str, request: Request, db=Depends(get_db)):
+    """Delete a time block: cancels reminder, deletes Radicale event, tombstones relationship."""
+    from src.reminders import cancel_reminder_for_event
+
+    config = request.app.state.config
+
+    # 1. Cancel any pending reminders
+    cancelled = await cancel_reminder_for_event(db, event_uid)
+
+    # 2. Delete event from Radicale
+    from src.adapters.radicale import delete_event
+
+    cal_config = config.radicale
+    deleted = await delete_event(
+        cal_config.url,
+        cal_config.username,
+        cal_config.password,
+        cal_config.calendar,
+        event_uid,
+    )
+
+    # 3. Tombstone the relationship
+    from src.models import get_relationship_by_event_uid, tombstone_relationship
+
+    rel = get_relationship_by_event_uid(db, event_uid)
+    if rel:
+        tombstone_relationship(db, rel["id"])
+
+    return {
+        "event_uid": event_uid,
+        "event_deleted": deleted,
+        "reminders_cancelled": cancelled,
+        "relationship_archived": rel is not None,
+    }
+
+
+class MoveRequest(BaseModel):
+    new_start: str = Field(..., description="New ISO start datetime")
+    duration_minutes: int = Field(..., ge=5, le=480)
+
+
+@router.patch("/schedule/{event_uid}")
+async def move_time_block(
+    event_uid: str,
+    req: MoveRequest,
+    request: Request,
+    db=Depends(get_db),
+):
+    """Move a time block: reschedules reminder, updates Radicale event."""
+    from src.reminders import reschedule_reminder
+
+    config = request.app.state.config
+
+    # 1. Fetch current event from Radicale
+    from src.adapters.radicale import get_event
+    from src.models import get_relationship_by_event_uid
+
+    cal_config = config.radicale
+    ical_text = await get_event(
+        cal_config.url,
+        cal_config.username,
+        cal_config.password,
+        cal_config.calendar,
+        event_uid,
+    )
+    if not ical_text:
+        raise HTTPException(status_code=404, detail="Event not found in Radicale")
+
+    # 2. Find relationship for task title
+    rel = get_relationship_by_event_uid(db, event_uid)
+    task_title = "Scheduled task"
+    if rel:
+        target_id = rel.get("target_id")
+        if target_id:
+            entity = db.execute(
+                "SELECT display_name FROM entities WHERE id = ?",
+                (target_id,),
+            ).fetchone()
+            if entity:
+                task_title = entity["display_name"]
+
+    # 3. Update event in Radicale
+    from datetime import timedelta
+
+    start_dt = datetime.fromisoformat(req.new_start)
+    end_dt = start_dt + timedelta(minutes=req.duration_minutes)
+
+    def fmt(dt: datetime) -> str:
+        return dt.strftime("%Y%m%dT%H%M%S")
+
+    # Rebuild the iCal with new times, preserving UID + relationship
+    relationship_id = rel["id"] if rel else ""
+    new_ical = (
+        "BEGIN:VCALENDAR\n"
+        "VERSION:2.0\n"
+        "PRODID:-//Vault Coordinator//EN\n"
+        "BEGIN:VEVENT\n"
+        f"UID:{event_uid}\n"
+        f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}\n"
+        f"DTSTART:{fmt(start_dt)}\n"
+        f"DTEND:{fmt(end_dt)}\n"
+        f"SUMMARY:{task_title}\n"
+        f"DESCRIPTION:Scheduled via Vault Coordinator\n"
+        f"X-VAULT-BLOCK-ID:{relationship_id}\n"
+        "END:VEVENT\n"
+        "END:VCALENDAR\n"
+    )
+
+    event_url = f"{cal_config.url}/{cal_config.username}/{cal_config.calendar}/{event_uid}.ics"
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            event_url,
+            content=new_ical,
+            headers={"Content-Type": "text/calendar"},
+            auth=(cal_config.username, cal_config.password),
+        )
+        if resp.status_code not in (200, 201, 204):
+            raise HTTPException(
+                status_code=502,
+                detail=f"Radicale PUT failed: {resp.status_code}",
+            )
+
+    # 4. Reschedule reminder (cancel old + schedule new)
+    if rel:
+        await reschedule_reminder(
+            db=db,
+            config=config,
+            event_uid=event_uid,
+            task_title=task_title,
+            new_start_iso=req.new_start,
+            duration_minutes=req.duration_minutes,
+        )
+
+        # Update relationship metadata
+        from src.models import update_relationship_metadata
+
+        update_relationship_metadata(
+            db,
+            rel["id"],
+            {"start": req.new_start, "duration_minutes": req.duration_minutes},
+        )
+
+    return {
+        "event_uid": event_uid,
+        "new_start": req.new_start,
+        "duration_minutes": req.duration_minutes,
+        "reminder_rescheduled": rel is not None,
+    }

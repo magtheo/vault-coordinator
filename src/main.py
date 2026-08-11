@@ -16,11 +16,29 @@ from src.routers import health, schedule, sync, tasks
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database and config on startup."""
+    """Initialize database, config, and scheduler on startup."""
+    import logging
+
+    logging.basicConfig(level=logging.INFO)
     config = load_config()
     init_database()
     app.state.config = config
+
+    # Start APScheduler and rebuild reminders from DB
+    from src.database import get_connection
+    from src.reminders import init_scheduler, rebuild_scheduler_from_db, shutdown_scheduler
+
+    init_scheduler(config)
+    db = get_connection()
+    import asyncio
+
+    restored = await rebuild_scheduler_from_db(db, config)
+    db.close()
+    logging.getLogger("vault").info("Restored %d reminders on startup", restored)
+
     yield
+
+    shutdown_scheduler()
 
 
 app = FastAPI(
