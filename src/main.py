@@ -3,8 +3,11 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from src.config import load_config
 from src.database import init_database
@@ -39,3 +42,23 @@ app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
 app.include_router(schedule.router, prefix="/api", tags=["schedule"])
 app.include_router(sync.router, prefix="/api", tags=["sync"])
+
+# ── Serve PWA static files (must be after API routes) ──────────────────
+_frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    # Mount static assets (js, css, images)
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(_frontend_dist / "assets")),
+        name="assets",
+    )
+
+    # SPA fallback: all non-API routes serve index.html
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str, request: Request):
+        # Try to serve a real file first
+        file_path = _frontend_dist / full_path
+        if full_path and file_path.is_file():
+            return FileResponse(str(file_path))
+        # Fallback to index.html for SPA routing
+        return FileResponse(str(_frontend_dist / "index.html"))

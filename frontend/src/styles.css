@@ -1,0 +1,423 @@
+/* ── Vault Coordinator PWA ──────────────────────────────────────────── */
+/* Dark, touch-first, minimal. No framework — just CSS.                 */
+
+:root {
+  --bg: #1a1a1a;
+  --bg-card: #2a2a2a;
+  --bg-card-hover: #333;
+  --text: #e0e0e0;
+  --text-dim: #888;
+  --accent: #7c9eff;
+  --accent-hover: #9bb5ff;
+  --danger: #ff6b6b;
+  --success: #6bcf7e;
+  --border: #3a3a3a;
+  --radius: 12px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tab-height: 60px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#root {
+  min-height: 100vh;
+  max-width: 600px;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* ── App layout ─────────────────────────────────────────────────────── */
+
+.app {
+  padding-bottom: calc(var(--tab-height) + var(--safe-bottom));
+  min-height: 100vh;
+}
+
+.app-header {
+  padding: 16px;
+  padding-top: max(16px, env(safe-area-inset-top));
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-header h1 {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+/* ── Bottom tab bar ─────────────────────────────────────────────────── */
+
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 600px;
+  height: calc(var(--tab-height) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 100;
+}
+
+.tab {
+  flex: 1;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: color 0.15s;
+  min-height: 48px;
+}
+
+.tab.active {
+  color: var(--accent);
+}
+
+.tab-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+/* ── Task list ──────────────────────────────────────────────────────── */
+
+.sync-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+
+.sync-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+.sync-dot.ok { background: var(--success); }
+.sync-dot.stale { background: var(--danger); }
+
+.search-bar {
+  padding: 8px 16px;
+}
+
+.search-bar input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.search-bar input:focus {
+  border-color: var(--accent);
+}
+
+.task-list {
+  padding: 4px 0;
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  min-height: 48px;
+  transition: background 0.1s;
+}
+
+.task-item:active {
+  background: var(--bg-card-hover);
+}
+
+.task-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-title {
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-meta {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.task-source {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 6px;
+  font-weight: 500;
+}
+
+.task-source.vikunja { background: #3b5998; color: #fff; }
+.task-source.git { background: #2d5a3d; color: #b8e6c8; }
+
+.schedule-icon {
+  font-size: 1.3rem;
+  margin-left: 8px;
+  opacity: 0.5;
+}
+
+/* ── Schedule bottom sheet ──────────────────────────────────────────── */
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  animation: fadeIn 0.2s ease;
+}
+
+.sheet {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 600px;
+  background: var(--bg-card);
+  border-radius: 20px 20px 0 0;
+  padding: 20px 16px;
+  padding-bottom: calc(20px + var(--safe-bottom));
+  z-index: 201;
+  animation: slideUp 0.25s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translate(-50%, 100%); }
+  to { transform: translate(-50%, 0); }
+}
+
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 0 auto 16px;
+}
+
+.sheet-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheet-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+}
+
+.section-label {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  margin-top: 8px;
+}
+
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.option-btn {
+  padding: 12px 8px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-height: 48px;
+  transition: all 0.1s;
+  text-align: center;
+}
+
+.option-btn:active {
+  transform: scale(0.97);
+}
+
+.option-btn.selected {
+  border-color: var(--accent);
+  background: rgba(124, 158, 255, 0.15);
+  color: var(--accent);
+}
+
+.time-preview {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  padding: 12px;
+  margin: 8px 0;
+  color: var(--accent);
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.btn-secondary {
+  flex: 1;
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 1rem;
+  cursor: pointer;
+  min-height: 48px;
+}
+
+.btn-primary {
+  flex: 1;
+  padding: 14px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #1a1a1a;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 48px;
+}
+
+.btn-primary:active { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.5; }
+
+/* ── Today view ─────────────────────────────────────────────────────── */
+
+.today-event {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.event-time {
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.event-title {
+  font-size: 0.95rem;
+}
+
+.event-link {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-dim);
+}
+
+/* ── Toast ──────────────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  bottom: calc(var(--tab-height) + var(--safe-bottom) + 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  z-index: 300;
+  animation: fadeIn 0.2s ease;
+  max-width: 90%;
+}
+
+.toast.success { border-color: var(--success); }
+.toast.error { border-color: var(--danger); }
+
+/* ── Loading ────────────────────────────────────────────────────────── */
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* ── Misc ───────────────────────────────────────────────────────────── */
+
+.sync-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.sync-btn:active {
+  background: var(--bg-card);
+}
+
+.error-text {
+  color: var(--danger);
+  font-size: 0.85rem;
+  padding: 12px 16px;
+}

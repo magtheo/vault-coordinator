@@ -169,48 +169,88 @@ async def schedule(req: ScheduleRequest, request: Request, db=Depends(get_db)):
 
 @router.get("/schedule/today")
 async def todays_schedule(request: Request, db=Depends(get_db)):
-    """Get today's scheduled time blocks from Radicale."""
+    """Get today's scheduled time blocks from Radicale.
+    Returns structured JSON with parsed event data + relationship info.
+    """
     config = request.app.state.config
     cal_config = config.radicale
 
-    today = datetime.now(timezone.utc).strftime("%Y%m%dT000000Z")
-    tomorrow = datetime.now(timezone.utc).replace(
-        hour=23, minute=59, second=59
-    ).strftime("%Y%m%dT235959Z")
+    now = datetime.now(timezone.utc)
+    from src.adapters.radicale import get_events_range
 
-    report_body = f"""<?xml version="1.0" encoding="UTF-8"?>
-<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
-  <D:prop>
-    <D:getetag/>
-    <C:calendar-data/>
-  </D:prop>
-  <C:filter>
-    <C:comp-filter name="VCALENDAR">
-      <C:comp-filter name="VEVENT">
-        <C:time-range start="{today}" end="{tomorrow}"/>
-      </C:comp-filter>
-    </C:comp-filter>
-  </C:filter>
-</C:calendar-query>"""
+    raw_events = await get_events_range(
+        cal_config.url,
+        cal_config.username,
+        cal_config.password,
+        cal_config.calendar,
+        now,
+        now,
+    )
 
-    cal_url = f"{cal_config.url}/{cal_config.username}/{cal_config.calendar}/"
+    from icalendar import Calendar
+    from src.models import get_relationship_by_event_uid
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.request(
-            "REPORT",
-            cal_url,
-            content=report_body,
-            headers={
-                "Content-Type": "application/xml",
-                "Depth": "1",
-            },
-            auth=(cal_config.username, cal_config.password),
-        )
+    events = []
+    for raw in raw_events:
+        ical_text = raw.get("ical", "")
+        try:
+            cal = Calendar.from_ical(ical_text)
+            for component in cal.walk("VEVENT"):
+                uid = str(component.get("uid", ""))
+                summary = str(component.get("summary", ""))
+                dtstart = component.get("dtstart")
+                dtend = component.get("dtend")
 
-    return {
-        "status_code": resp.status_code,
-        "raw": resp.text[:5000],
-    }
+                start_str = None
+                end_str = None
+                if dtstart:
+                    start_str = (
+                        dtstart.dt.isoformat()
+                        if hasattr(dtstart.dt, "isoformat")
+                        else str(dtstart.dt)
+                    )
+                if dtend:
+                    end_str = (
+                        dtend.dt.isoformat()
+                        if hasattr(dtend.dt, "isoformat")
+                        else str(dtend.dt)
+                    )
+
+                # Try to find linked relationship
+                linked_alias = None
+                linked_title = None
+                if uid:
+                    rel = get_relationship_by_event_uid(db, uid)
+                    if rel:
+                        target_id = rel.get("target_id")
+                        if target_id:
+                            target = db.execute(
+                                "SELECT external_alias, display_name FROM entities WHERE id = ?",
+                                (target_id,),
+                            ).fetchone()
+                            if target:
+                                linked_alias = target["external_alias"]
+                                linked_title = target["display_name"]
+
+                vault_block_id = ""
+                x_prop = component.get("x-vault-block-id")
+                if x_prop:
+                    vault_block_id = str(x_prop)
+
+                events.append({
+                    "uid": uid,
+                    "summary": summary,
+                    "start": start_str,
+                    "end": end_str,
+                    "vault_block_id": vault_block_id,
+                    "linked_alias": linked_alias,
+                    "linked_title": linked_title,
+                })
+        except Exception:
+            continue
+
+    events.sort(key=lambda e: e.get("start") or "")
+    return {"events": events, "date": now.strftime("%Y-%m-%d")}
 
 
 def _now_iso() -> str:
