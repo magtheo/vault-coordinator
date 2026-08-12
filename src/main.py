@@ -33,8 +33,18 @@ async def lifespan(app: FastAPI):
     import asyncio
 
     restored = await rebuild_scheduler_from_db(db, config)
+
+    # Reconcile: verify active schedule relationships against Radicale
+    from src.routers.schedule import reconcile_schedules
+
+    orphaned = await reconcile_schedules(db, config)
+
     db.close()
-    logging.getLogger("vault").info("Restored %d reminders on startup", restored)
+    logging.getLogger("vault").info(
+        "Restored %d reminders, reconciled %d orphaned schedules",
+        restored,
+        orphaned,
+    )
 
     yield
 

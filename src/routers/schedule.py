@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 from src.database import get_db
 from src.models import (
     create_relationship,
+    get_relationships,
     resolve_alias,
+    tombstone_relationship,
     upsert_entity,
 )
 
@@ -89,7 +91,9 @@ async def schedule(req: ScheduleRequest, request: Request, db=Depends(get_db)):
         (req.request_id,),
     ).fetchone()
     if existing:
-        return ScheduleResponse(**json.loads(existing["response"]))
+        data = json.loads(existing["response"])
+        data["status"] = "already_exists"  # Signal that this was a replay
+        return ScheduleResponse(**data)
 
     # 2. Resolve entity
     entity = resolve_alias(db, req.entity_alias)
@@ -98,6 +102,40 @@ async def schedule(req: ScheduleRequest, request: Request, db=Depends(get_db)):
             status_code=404,
             detail=f"Entity not found: {req.entity_alias}. Run a sync first.",
         )
+
+    # 2b. Reschedule semantics: if task already has active schedule(s),
+    # archive old relationships, delete old Radicale events, cancel old reminders.
+    existing_rels = get_relationships(
+        db, entity_id=entity["id"], rel_type="schedules", state="active"
+    )
+    if existing_rels:
+        import logging
+
+        logger = logging.getLogger("vault")
+        from src.reminders import cancel_reminder_for_event
+        from src.adapters.radicale import delete_event as radicale_delete
+
+        cal_config = config.radicale
+        for old_rel in existing_rels:
+            old_meta = json.loads(old_rel.get("metadata") or "{}")
+            old_uid = old_meta.get("event_uid")
+            if old_uid:
+                # Cancel reminder
+                await cancel_reminder_for_event(db, old_uid)
+                # Delete Radicale event
+                try:
+                    await radicale_delete(
+                        cal_config.url,
+                        cal_config.username,
+                        cal_config.password,
+                        cal_config.calendar,
+                        old_uid,
+                    )
+                except Exception:
+                    pass  # Event may already be gone
+                logger.info("Replaced schedule: archived %s, deleted event %s", old_rel["id"][:8], old_uid[:16])
+            # Archive the old relationship
+            tombstone_relationship(db, old_rel["id"])
 
     # 3. Deterministic event UID
     event_uid = _deterministic_uid(req.request_id)
@@ -419,3 +457,51 @@ async def move_time_block(
         "duration_minutes": req.duration_minutes,
         "reminder_rescheduled": rel is not None,
     }
+
+
+async def reconcile_schedules(db, config) -> int:
+    """Verify that every active 'schedules' relationship has a real .ics in Radicale.
+
+    Called on startup. Archives orphaned relationships (event gone from Radicale)
+    and cancels their reminders. Returns count of orphans found.
+    """
+    import logging
+
+    from src.adapters.radicale import get_event
+    from src.reminders import cancel_reminder_for_event
+
+    logger = logging.getLogger("vault")
+    cal_config = config.radicale
+
+    active_rels = get_relationships(db, rel_type="schedules", state="active")
+    orphaned = 0
+
+    for rel in active_rels:
+        meta = json.loads(rel.get("metadata") or "{}")
+        event_uid = meta.get("event_uid")
+        if not event_uid:
+            logger.warning("Relationship %s has no event_uid in metadata", rel["id"][:8])
+            continue
+
+        ical_text = await get_event(
+            cal_config.url,
+            cal_config.username,
+            cal_config.password,
+            cal_config.calendar,
+            event_uid,
+        )
+
+        if not ical_text:
+            orphaned += 1
+            await cancel_reminder_for_event(db, event_uid)
+            tombstone_relationship(db, rel["id"])
+            logger.info(
+                "Reconciled orphan: %s event %s no longer in Radicale — archived",
+                rel["id"][:8],
+                event_uid[:16],
+            )
+
+    if orphaned:
+        db.commit()
+
+    return orphaned

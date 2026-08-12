@@ -182,6 +182,14 @@ export function TaskDetail({ task, onClose, onMutated }: Props) {
         {/* Read-only info when not editing */}
         {!editing && task.kind === "vikunja_task" && (
           <div className="detail-info">
+            {task.project_ref && (
+              <div className="info-row">
+                <span className="info-label">Project</span>
+                <span className="info-value">
+                  {task.project_ref.replace("vikunja:project:", "#").replace("repo:", "")}
+                </span>
+              </div>
+            )}
             {task.priority != null && task.priority > 0 && (
               <div className="info-row">
                 <span className="info-label">Priority</span>
@@ -198,6 +206,19 @@ export function TaskDetail({ task, onClose, onMutated }: Props) {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!editing && task.kind === "repo_task" && (
+          <div className="detail-info">
+            {task.project_ref && (
+              <div className="info-row">
+                <span className="info-label">Project</span>
+                <span className="info-value">
+                  {task.project_ref.replace("repo:", "")}
                 </span>
               </div>
             )}

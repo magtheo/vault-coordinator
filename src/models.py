@@ -384,7 +384,7 @@ def get_scheduled_aliases(db: sqlite3.Connection) -> set[str]:
         """
         SELECT DISTINCT e.external_alias
         FROM relationships r
-        JOIN entities e ON r.source_id = e.id
+        JOIN entities e ON r.target_id = e.id
         WHERE r.rel_type = 'schedules' AND r.state = 'active'
         """
     ).fetchall()
