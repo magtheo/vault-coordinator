@@ -657,3 +657,18 @@ html, body {
   padding: 8px 16px 4px;
   margin: 0;
 }
+
+/* ── Machines view ── */
+.machine-list { padding: 12px; display: flex; flex-direction: column; gap: 12px; padding-bottom: 80px; }
+.machine-card { background: var(--bg-card, #fff); border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 14px; }
+.machine-card.unreachable { opacity: 0.65; }
+.machine-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.machine-name { font-weight: 600; font-size: 1.05rem; }
+.machine-host { color: var(--muted, #888); font-size: 0.85rem; margin-left: auto; }
+.machine-job { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border, #eee); }
+.machine-job:last-child { border-bottom: none; }
+.machine-job .btn-secondary { margin-left: auto; flex-shrink: 0; }
+.machine-empty { color: var(--muted, #888); font-size: 0.85rem; padding: 4px 0; }
+.machine-sessions { display: flex; flex-wrap: wrap; gap: 6px; }
+.machine-chip { background: var(--bg-chip, #eee); border-radius: 10px; padding: 3px 10px; font-size: 0.8rem; }
+.machine-error { color: var(--danger, #c33); font-size: 0.8rem; padding: 6px 12px; }

@@ -3,6 +3,7 @@ import type { View, Task } from "./types";
 import { TaskList } from "./components/TaskList";
 import { TaskDetail } from "./components/TaskDetail";
 import { TodaySchedule } from "./components/TodaySchedule";
+import { MachinesView } from "./components/MachinesView";
 
 export default function App() {
   const [view, setView] = useState<View>("today");
@@ -50,6 +51,10 @@ export default function App() {
         </>
       )}
 
+      {view === "machines" && (
+        <MachinesView onToast={handleToast} refreshKey={refreshKey} />
+      )}
+
       {/* Bottom tab bar */}
       <nav className="tab-bar">
         <button
@@ -65,6 +70,13 @@ export default function App() {
         >
           <span className="tab-icon">📋</span>
           Tasks
+        </button>
+        <button
+          className={`tab ${view === "machines" ? "active" : ""}`}
+          onClick={() => setView("machines")}
+        >
+          <span className="tab-icon">🖥️</span>
+          Machines
         </button>
       </nav>
 

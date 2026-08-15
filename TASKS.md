@@ -1,5 +1,5 @@
 # Tasks
-<!-- synced from Obsidian LifeOS — edit here or in Obsidian -->
+<!-- synced from Obsidian Vault — edit here or in Obsidian -->
 
 - [ ] V-001 Install and verify Vikunja (Docker, :3456)
 - [ ] V-002 Install and verify Radicale (Docker, :5232, two calendars)
@@ -23,3 +23,9 @@
 - [ ] V-020 Rebuild scheduler from DB on restart
 - [ ] V-021 Run all 12 integration tests
 
+- [x] V-022 machine-status script + forced-command allowlist (machine repo, ADR 009)
+- [x] V-023 Bearer-token auth middleware + CORS lockdown (config auth_token)
+- [x] V-024 Machines adapter (localhost subprocess + SSH pull) + /api/machines
+- [x] V-025 POST /machines/{name}/jobs/{job}/stop via allowlist
+- [x] V-026 PWA Machines screen (live jobs + sessions, stop button, 30s poll, token prompt)
+- [x] V-027 tailscale serve :8650 (tailnet-only HTTPS)

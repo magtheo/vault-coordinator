@@ -11,7 +11,7 @@ from pathlib import Path
 
 from src.config import load_config
 from src.database import init_database
-from src.routers import health, schedule, sync, tasks
+from src.routers import health, machines, schedule, sync, tasks
 
 
 @asynccontextmanager
@@ -54,22 +54,41 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Vault Coordinator",
     description="Integration platform connecting task systems with calendar scheduling.",
-    version="0.1.0",
+    version="0.1.1",
     lifespan=lifespan,
 )
 
+# ── CORS: exact origins (PWA is same-origin; dev servers listed) ────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# ── Bearer-token auth (single-user; tailscale serve gates the network) ──
+@app.middleware("http")
+async def token_auth(request: Request, call_next):
+    token = getattr(app.state, "config", None)
+    token = getattr(token, "auth_token", "") if token else ""
+    if token and request.url.path.startswith("/api"):
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {token}":
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
+
 
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
 app.include_router(schedule.router, prefix="/api", tags=["schedule"])
 app.include_router(sync.router, prefix="/api", tags=["sync"])
+app.include_router(machines.router, prefix="/api", tags=["machines"])
 
 # ── Serve PWA static files (must be after API routes) ──────────────────
 _frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"

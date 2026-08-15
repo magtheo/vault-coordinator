@@ -14,8 +14,8 @@ Integration platform connecting external task systems (Vikunja, Git repos) with 
 
 ## Architecture Reference
 
-- **Invariants (frozen v0.1):** `~/Documents/LifeOS/04 - Knowledge/LifeOS/Invariants - Integration Platform.md`
-- **Implementation Plan (frozen v0.1):** `~/Documents/LifeOS/04 - Knowledge/LifeOS/Vertical Slice Implementation Plan.md`
+- **Invariants (frozen v0.1):** `~/Documents/Vault/04 - Knowledge/Vault/Invariants - Integration Platform.md`
+- **Implementation Plan (frozen v0.1):** `~/Documents/Vault/04 - Knowledge/Vault/Vertical Slice Implementation Plan.md`
 
 ## Tech Stack
 

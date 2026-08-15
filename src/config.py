@@ -40,12 +40,19 @@ class RepoConfig(BaseModel):
     path: str
 
 
+class MachineConfig(BaseModel):
+    name: str                      # display name ("laptop", "server")
+    ssh_alias: str = ""            # empty → localhost (subprocess, no ssh)
+
+
 class AppConfig(BaseModel):
     coordinator: CoordinatorConfig
     vikunja: VikunjaConfig
     radicale: RadicaleConfig
     ntfy: NtfyConfig
     repos: list[RepoConfig] = []
+    machines: list[MachineConfig] = []
+    auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300
 
 

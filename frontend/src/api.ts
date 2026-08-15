@@ -5,12 +5,39 @@ import type {
   SyncResponse,
   MutationResponse,
   ProjectsResponse,
+  MachinesResponse,
 } from "./types";
 
 const API = "/api";
+const TOKEN_KEY = "vault_token";
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function ensureToken(): boolean {
+  if (localStorage.getItem(TOKEN_KEY)) return true;
+  const t = window.prompt("Vault access token");
+  if (t) {
+    localStorage.setItem(TOKEN_KEY, t);
+    return true;
+  }
+  return false;
+}
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(url, init);
+  const doFetch = () =>
+    fetch(url, {
+      ...init,
+      headers: { ...authHeaders(), ...(init?.headers ?? {}) },
+    });
+  let resp = await doFetch();
+  if (resp.status === 401 && !url.includes("retry")) {
+    // token missing/rejected → prompt once and retry
+    localStorage.removeItem(TOKEN_KEY);
+    if (ensureToken()) resp = await doFetch();
+  }
   if (!resp.ok) {
     let detail = resp.statusText;
     try {
@@ -125,4 +152,17 @@ export function deleteBlock(eventUid: string): Promise<unknown> {
 
 export function triggerSync(): Promise<SyncResponse> {
   return fetchJson<SyncResponse>(`${API}/sync`, { method: "POST" });
+}
+
+// ─── Machines endpoints ────────────────────────────────────────────────
+
+export function getMachines(): Promise<MachinesResponse> {
+  return fetchJson<MachinesResponse>(`${API}/machines`);
+}
+
+export function stopMachineJob(machine: string, job: string): Promise<{ status: string }> {
+  return fetchJson<{ status: string }>(
+    `${API}/machines/${encodeURIComponent(machine)}/jobs/${encodeURIComponent(job)}/stop`,
+    { method: "POST" },
+  );
 }

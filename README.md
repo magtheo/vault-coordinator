@@ -19,8 +19,8 @@ Vault Coordinator (FastAPI + SQLite)
 
 ## Key Documents
 
-- **Invariants** — `04 - Knowledge/LifeOS/Invariants - Integration Platform.md` (vault)
-- **Vertical Slice Plan** — `04 - Knowledge/LifeOS/Vertical Slice Implementation Plan.md` (vault)
+- **Invariants** — `04 - Knowledge/Vault/Invariants - Integration Platform.md` (vault)
+- **Vertical Slice Plan** — `04 - Knowledge/Vault/Vertical Slice Implementation Plan.md` (vault)
 
 ## Stack
 
