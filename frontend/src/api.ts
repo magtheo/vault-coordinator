@@ -5,6 +5,7 @@ import type {
   SyncResponse,
   MutationResponse,
   ProjectsResponse,
+  ProjectsOverviewResponse,
   MachinesResponse,
 } from "./types";
 
@@ -169,4 +170,8 @@ export function stopMachineJob(machine: string, job: string): Promise<{ status: 
     `${API}/machines/${encodeURIComponent(machine)}/jobs/${encodeURIComponent(job)}/stop`,
     { method: "POST" },
   );
+}
+
+export function getProjectsOverview(): Promise<ProjectsOverviewResponse> {
+  return fetchJson<ProjectsOverviewResponse>(`${API}/projects/overview`);
 }

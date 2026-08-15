@@ -32,3 +32,6 @@
 - [x] V-029 perf: TanStack Query client cache + stale-while-revalidate + all-tab prefetch
 - [x] V-030 POST /api/machines/refresh (pull-to-refresh path)
 
+- [x] V-031 machine-projects adapter (projects.toml parse, server clone)
+- [x] V-032 GET /api/projects/overview — joined view (tasks+sessions+jobs per project)
+- [x] V-033 PWA Projects tab (adaptive cards + detail sheet, cached + prefetched)

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from src.config import load_config
 from src.database import init_database
-from src.routers import health, machines, schedule, sync, tasks
+from src.routers import health, machines, projects_overview, schedule, sync, tasks
 
 
 @asynccontextmanager
@@ -102,6 +102,7 @@ app.include_router(tasks.router, prefix="/api", tags=["tasks"])
 app.include_router(schedule.router, prefix="/api", tags=["schedule"])
 app.include_router(sync.router, prefix="/api", tags=["sync"])
 app.include_router(machines.router, prefix="/api", tags=["machines"])
+app.include_router(projects_overview.router, prefix="/api", tags=["projects"])
 
 # ── Serve PWA static files (must be after API routes) ──────────────────
 _frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"

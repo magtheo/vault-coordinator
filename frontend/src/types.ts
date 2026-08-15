@@ -135,6 +135,44 @@ export interface MachinesResponse {
   machines: Machine[];
 }
 
+// ─── Projects overview (slice 2) ───────────────────────────────────────
+
+export interface ProjectTask {
+  alias: string;
+  title: string;
+  kind: string;
+}
+
+export interface ProjectSession {
+  host: string;
+  name: string;
+  windows: number;
+  created: string;
+}
+
+export interface ProjectJob {
+  host: string;
+  name: string;
+  state: string;
+  since: string | null;
+  command: string;
+}
+
+export interface ProjectOverview {
+  name: string;
+  source: string;
+  host: string | null;
+  open_tasks: number;
+  done_tasks: number;
+  tasks: ProjectTask[];
+  sessions: ProjectSession[];
+  jobs: ProjectJob[];
+}
+
+export interface ProjectsOverviewResponse {
+  projects: ProjectOverview[];
+}
+
 // ─── View state ────────────────────────────────────────────────────────
 
-export type View = "today" | "tasks" | "machines";
+export type View = "today" | "tasks" | "projects" | "machines";

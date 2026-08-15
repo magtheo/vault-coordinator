@@ -5,7 +5,8 @@ import { TaskList } from "./components/TaskList";
 import { TaskDetail } from "./components/TaskDetail";
 import { TodaySchedule } from "./components/TodaySchedule";
 import { MachinesView } from "./components/MachinesView";
-import { getTasks, getToday, getMachines } from "./api";
+import { ProjectsView } from "./components/ProjectsView";
+import { getTasks, getToday, getMachines, getProjectsOverview } from "./api";
 
 export default function App() {
   const [view, setView] = useState<View>("today");
@@ -27,6 +28,7 @@ export default function App() {
       queryClient.prefetchQuery({ queryKey: ["tasks"], queryFn: getTasks });
       queryClient.prefetchQuery({ queryKey: ["today"], queryFn: getToday });
       queryClient.prefetchQuery({ queryKey: ["machines"], queryFn: getMachines });
+      queryClient.prefetchQuery({ queryKey: ["projects-overview"], queryFn: getProjectsOverview });
     }, 300);
     return () => window.clearTimeout(id);
   }, [queryClient]);
@@ -64,6 +66,10 @@ export default function App() {
         </>
       )}
 
+      {view === "projects" && (
+        <ProjectsView onSelectTask={setSelectedTask} onToast={handleToast} />
+      )}
+
       {view === "machines" && <MachinesView onToast={handleToast} />}
 
       {/* Bottom tab bar */}
@@ -81,6 +87,13 @@ export default function App() {
         >
           <span className="tab-icon">📋</span>
           Tasks
+        </button>
+        <button
+          className={`tab ${view === "projects" ? "active" : ""}`}
+          onClick={() => setView("projects")}
+        >
+          <span className="tab-icon">📂</span>
+          Projects
         </button>
         <button
           className={`tab ${view === "machines" ? "active" : ""}`}
