@@ -28,7 +28,7 @@
 - [x] V-025 POST /machines/{name}/jobs/{job}/stop via allowlist
 - [x] V-026 PWA Machines screen (live jobs + sessions, stop button, 30s poll, token prompt)
 - [x] V-027 tailscale serve :8650 (tailnet-only HTTPS)
-
 - [x] V-028 perf: background machines cache (30s poll, /api/machines 365ms → 2ms)
 - [x] V-029 perf: TanStack Query client cache + stale-while-revalidate + all-tab prefetch
 - [x] V-030 POST /api/machines/refresh (pull-to-refresh path)
+
