@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { View, Task } from "./types";
 import { TaskList } from "./components/TaskList";
 import { TaskDetail } from "./components/TaskDetail";
 import { TodaySchedule } from "./components/TodaySchedule";
 import { MachinesView } from "./components/MachinesView";
+import { getTasks, getToday, getMachines } from "./api";
 
 export default function App() {
   const [view, setView] = useState<View>("today");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (toast) {
@@ -18,14 +20,28 @@ export default function App() {
     }
   }, [toast]);
 
+  // Prefetch every tab's data shortly after first paint → switching tabs
+  // is instant even on the first visit (cache serves, background revalidates).
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      queryClient.prefetchQuery({ queryKey: ["tasks"], queryFn: getTasks });
+      queryClient.prefetchQuery({ queryKey: ["today"], queryFn: getToday });
+      queryClient.prefetchQuery({ queryKey: ["machines"], queryFn: getMachines });
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [queryClient]);
+
   const handleToast = useCallback((msg: string, ok: boolean) => {
     setToast({ msg, ok });
   }, []);
 
-  const handleMutated = useCallback((msg: string, ok: boolean) => {
-    setToast({ msg, ok });
-    if (ok) setRefreshKey((k) => k + 1);
-  }, []);
+  const handleMutated = useCallback(
+    (msg: string, ok: boolean) => {
+      setToast({ msg, ok });
+      if (ok) queryClient.invalidateQueries();
+    },
+    [queryClient],
+  );
 
   return (
     <div className="app">
@@ -33,7 +49,6 @@ export default function App() {
         <TodaySchedule
           onSelectTask={setSelectedTask}
           onToast={handleToast}
-          refreshKey={refreshKey}
         />
       )}
 
@@ -45,15 +60,11 @@ export default function App() {
           <TaskList
             onSelectTask={setSelectedTask}
             onToast={handleToast}
-            refreshKey={refreshKey}
-            onRefreshed={() => {}}
           />
         </>
       )}
 
-      {view === "machines" && (
-        <MachinesView onToast={handleToast} refreshKey={refreshKey} />
-      )}
+      {view === "machines" && <MachinesView onToast={handleToast} />}
 
       {/* Bottom tab bar */}
       <nav className="tab-bar">

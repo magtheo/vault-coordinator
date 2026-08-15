@@ -52,6 +52,7 @@ class AppConfig(BaseModel):
     ntfy: NtfyConfig
     repos: list[RepoConfig] = []
     machines: list[MachineConfig] = []
+    machines_poll_seconds: int = 30
     auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300
 

@@ -1,55 +1,39 @@
-import { useState, useEffect, useCallback } from "react";
-import type { Task, TasksResponse } from "../types";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Task } from "../types";
 import { getTasks, triggerSync, createTask } from "../api";
 
 interface Props {
   onSelectTask: (task: Task) => void;
   onToast: (msg: string, ok: boolean) => void;
-  refreshKey: number;
-  onRefreshed: () => void;
 }
 
-export function TaskList({ onSelectTask, onToast, refreshKey, onRefreshed }: Props) {
-  const [data, setData] = useState<TasksResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function TaskList({ onSelectTask, onToast }: Props) {
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [showCapture, setShowCapture] = useState(false);
   const [captureTitle, setCaptureTitle] = useState("");
   const [captureBusy, setCaptureBusy] = useState(false);
   const [hideScheduled, setHideScheduled] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      setError(null);
-      const resp = await getTasks();
-      setData(resp);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load tasks");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { data, error: qError, isPending } = useQuery({
+    queryKey: ["tasks"],
+    queryFn: getTasks,
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // Reload when parent triggers refresh
-  useEffect(() => {
-    if (refreshKey > 0) {
-      load().then(onRefreshed);
-    }
-  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const loading = isPending;
+  const error = qError instanceof Error ? qError.message : null;
 
   const handleSync = async () => {
-    setLoading(true);
+    setSyncing(true);
     try {
       await triggerSync();
-      await load();
+      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Sync failed");
-      setLoading(false);
+      onToast(e instanceof Error ? e.message : "Sync failed", false);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -61,7 +45,7 @@ export function TaskList({ onSelectTask, onToast, refreshKey, onRefreshed }: Pro
       onToast("Task created", true);
       setCaptureTitle("");
       setShowCapture(false);
-      await load();
+      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
     } catch (e) {
       onToast(e instanceof Error ? e.message : "Capture failed", false);
     } finally {
@@ -93,7 +77,7 @@ export function TaskList({ onSelectTask, onToast, refreshKey, onRefreshed }: Pro
               {source}
             </span>
           ))}
-        <button className="sync-btn" onClick={handleSync}>↻ Sync</button>
+        <button className="sync-btn" onClick={handleSync}>{syncing ? "… Syncing" : "↻ Sync"}</button>
       </div>
 
       {/* Quick capture */}

@@ -1,64 +1,68 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MachinesResponse, Machine } from "../types";
-import { getMachines, stopMachineJob } from "../api";
+import { getMachines, refreshMachines, stopMachineJob } from "../api";
 
 interface Props {
   onToast: (msg: string, ok: boolean) => void;
-  refreshKey: number;
 }
 
+// Server refreshes its host-projection every `machines_poll_seconds` (30s);
+// the client polls the *cached* endpoint — cheap — on the same cadence.
 const POLL_MS = 30_000;
 
-export function MachinesView({ onToast, refreshKey }: Props) {
-  const [data, setData] = useState<MachinesResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function MachinesView({ onToast }: Props) {
+  const queryClient = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
+  const { data, error: qError, isPending } = useQuery({
+    queryKey: ["machines"],
+    queryFn: getMachines,
+    refetchInterval: POLL_MS,
+  });
+
+  const error = qError instanceof Error ? qError.message : null;
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
     try {
-      setError(null);
-      const resp = await getMachines();
-      setData(resp);
+      await refreshMachines();
+      await queryClient.invalidateQueries({ queryKey: ["machines"] });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load machines");
+      onToast(e instanceof Error ? e.message : "Refresh failed", false);
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    if (refreshKey > 0) load();
-  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const t = setInterval(load, POLL_MS);
-    return () => clearInterval(t);
-  }, [load]);
+  };
 
   const handleStop = async (machine: string, job: string) => {
     try {
       await stopMachineJob(machine, job);
       onToast(`Stopped ${job} on ${machine}`, true);
-      await load();
     } catch (e) {
       onToast(e instanceof Error ? e.message : "Stop failed", false);
     }
   };
 
-  if (loading && !data) return <div className="app-header"><h1>🖥️ Machines</h1></div>;
+  if (isPending && !data) {
+    return (
+      <div className="app-header">
+        <h1>🖥️ Machines</h1>
+      </div>
+    );
+  }
 
   return (
     <>
       <div className="app-header">
         <h1>🖥️ Machines</h1>
-        <button className="btn-secondary" onClick={() => { setLoading(true); load(); }}>
-          Refresh
+        <button className="btn-secondary" onClick={handleRefresh} disabled={refreshing}>
+          {refreshing ? "Refreshing…" : "Refresh"}
         </button>
       </div>
+      {data?.age_seconds !== undefined && (
+        <div className="machine-age">updated {Math.round(data.age_seconds)}s ago</div>
+      )}
       {error && <div className="machine-error">{error}</div>}
       <div className="machine-list">
         {(data?.machines ?? []).map((m) => (

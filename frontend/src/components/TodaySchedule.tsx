@@ -1,38 +1,36 @@
-import { useState, useEffect, useCallback } from "react";
-import type { TodayResponse, TasksResponse, Task } from "../types";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Task } from "../types";
 import { getToday, getTasks, createTask } from "../api";
 
 interface Props {
   onSelectTask: (task: Task) => void;
   onToast: (msg: string, ok: boolean) => void;
-  refreshKey: number;
 }
 
-export function TodaySchedule({ onSelectTask, onToast, refreshKey }: Props) {
-  const [today, setToday] = useState<TodayResponse | null>(null);
-  const [tasksData, setTasksData] = useState<TasksResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function TodaySchedule({ onSelectTask, onToast }: Props) {
+  const queryClient = useQueryClient();
   const [showCapture, setShowCapture] = useState(false);
   const [captureTitle, setCaptureTitle] = useState("");
   const [captureBusy, setCaptureBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      setError(null);
-      const [todayResp, tasksResp] = await Promise.all([getToday(), getTasks()]);
-      setToday(todayResp);
-      setTasksData(tasksResp);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const todayQuery = useQuery({ queryKey: ["today"], queryFn: getToday });
+  const tasksQuery = useQuery({ queryKey: ["tasks"], queryFn: getTasks });
 
-  useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+  const today = todayQuery.data;
+  const tasksData = tasksQuery.data;
+  const loading = todayQuery.isPending || tasksQuery.isPending;
+  const error =
+    todayQuery.error instanceof Error
+      ? todayQuery.error.message
+      : tasksQuery.error instanceof Error
+        ? tasksQuery.error.message
+        : null;
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["today"] });
+    queryClient.invalidateQueries({ queryKey: ["tasks"] });
+  };
 
   const handleQuickCapture = async () => {
     if (!captureTitle.trim()) return;
@@ -42,7 +40,7 @@ export function TodaySchedule({ onSelectTask, onToast, refreshKey }: Props) {
       onToast("Task created", true);
       setCaptureTitle("");
       setShowCapture(false);
-      await load();
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
     } catch (e) {
       onToast(e instanceof Error ? e.message : "Capture failed", false);
     } finally {
@@ -97,7 +95,7 @@ export function TodaySchedule({ onSelectTask, onToast, refreshKey }: Props) {
     <div>
       <div className="app-header">
         <h1>📅 {dateLabel}</h1>
-        <button className="sync-btn" onClick={load}>↻</button>
+        <button className="sync-btn" onClick={refresh}>↻</button>
       </div>
 
       {/* Quick capture */}

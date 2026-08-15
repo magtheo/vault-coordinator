@@ -40,6 +40,18 @@ async def lifespan(app: FastAPI):
     orphaned = await reconcile_schedules(db, config)
 
     db.close()
+
+    # Machines background cache (hosts as a synced projection — design §4)
+    from src.machines_cache import MachinesCache
+
+    machines_cache = MachinesCache(
+        [m.model_dump() for m in getattr(config, "machines", [])],
+        interval=getattr(config, "machines_poll_seconds", 30),
+    )
+    await machines_cache.refresh()  # warm before first request
+    machines_cache.start()
+    app.state.machines_cache = machines_cache
+
     logging.getLogger("vault").info(
         "Restored %d reminders, reconciled %d orphaned schedules",
         restored,
@@ -48,6 +60,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    machines_cache.stop()
     shutdown_scheduler()
 
 

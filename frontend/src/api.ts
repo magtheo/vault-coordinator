@@ -160,6 +160,10 @@ export function getMachines(): Promise<MachinesResponse> {
   return fetchJson<MachinesResponse>(`${API}/machines`);
 }
 
+export function refreshMachines(): Promise<MachinesResponse> {
+  return fetchJson<MachinesResponse>(`${API}/machines/refresh`, { method: "POST" });
+}
+
 export function stopMachineJob(machine: string, job: string): Promise<{ status: string }> {
   return fetchJson<{ status: string }>(
     `${API}/machines/${encodeURIComponent(machine)}/jobs/${encodeURIComponent(job)}/stop`,
