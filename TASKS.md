@@ -42,3 +42,6 @@
 - [x] V-039 PWA Projects v2: AI insights card (advisory-only glm-5.1, cached 10m), inline task complete, log modal, session pane expand, attention sorting
 - [x] V-040 Today tab attention strip
 
+- [x] V-041 curated run-commands: machine-status run verb (per-host registry match, command text never crosses the wire)
+- [x] V-042 POST /machines/{m}/projects/{p}/commands/{k}/run
+- [x] V-043 overview exposes declared commands (host+key) for PWA Run buttons
