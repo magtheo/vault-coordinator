@@ -9,6 +9,7 @@ import {
   stopMachineJob,
   getJobLog,
   completeTask,
+  runProjectCommand,
 } from "../api";
 
 interface Props {
@@ -48,6 +49,15 @@ export function ProjectsView({ onSelectTask, onToast }: Props) {
       onToast(`Stopped ${job}`, true);
     } catch (e) {
       onToast(e instanceof Error ? e.message : "Stop failed", false);
+    }
+  };
+
+  const handleRun = async (host: string, project: string, key: string) => {
+    try {
+      await runProjectCommand(host, project, key);
+      onToast(`Started ${project}-${key} on ${host}`, true);
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : "Run failed", false);
     }
   };
 
@@ -199,6 +209,23 @@ export function ProjectsView({ onSelectTask, onToast }: Props) {
             <div className="machine-empty">
               last: {open.git.last_subject} ({fmtAge(open.git.commit_age_min)} ago)
             </div>
+          )}
+
+          {open.commands.length > 0 && (
+            <>
+              <div className="section-label">Commands</div>
+              <div className="machine-sessions" style={{ marginBottom: 8 }}>
+                {open.commands.map((c) => (
+                  <button
+                    key={c.host + c.key}
+                    className="btn-secondary btn-sm"
+                    onClick={() => handleRun(c.host, open.name, c.key)}
+                  >
+                    ▶ {c.key} · {c.host}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
 
           {open.jobs.length > 0 && (

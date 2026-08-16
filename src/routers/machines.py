@@ -9,7 +9,7 @@ import re
 
 from fastapi import APIRouter, HTTPException, Request
 
-from src.adapters.machines import job_log, stop_job
+from src.adapters.machines import job_log, run_command, stop_job
 from src.config import get_config
 
 router = APIRouter()
@@ -83,3 +83,26 @@ async def _run(fn, *args):
     import asyncio
 
     return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+
+
+_RUN_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+_RUN_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+@router.post("/machines/{name}/projects/{project}/commands/{key}/run")
+async def run_project_command(name: str, project: str, key: str,
+                              request: Request):
+    """Start a curated command. Only project+key cross the wire; the target
+    machine's projects.toml (git-versioned) is the sole source of the
+    command text — validated again by the forced-command gate (ADR 009)."""
+    if not _RUN_NAME.match(project) or not _RUN_KEY.match(key):
+        raise HTTPException(status_code=400, detail="invalid project/key")
+    m = _find_machine(name)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"unknown machine {name}")
+    try:
+        result = await _run(run_command, m, project, key)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(e)[:200])
+    await _cache(request).refresh()
+    return {"status": "ok", "machine": name, "result": result}

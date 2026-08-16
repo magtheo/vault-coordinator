@@ -1,9 +1,9 @@
-"""Machines adapter — live status pulls from hosts (jobs, tmux sessions).
+"""Machines adapter — host access via the machine-status gate (ADR 009).
 
 Design: docs/design/vault-platform-extension.md §4 (machine repo).
 Hosts are authoritative systems like any other: the coordinator pulls
 read-only state and routes allowed writes through the forced-command
-allowlist in `machine-status` (ADR 009).
+allowlist in `machine-status`.
 
 Uniform transport: the same `machine-status` script runs everywhere —
 locally via subprocess (with SSH_ORIGINAL_COMMAND set), remotely via ssh.
@@ -35,10 +35,6 @@ def _run_gate(alias: str | None, command: str, timeout: int = 20) -> str:
     return r.stdout
 
 
-def _localhost_status() -> dict[str, Any]:
-    return json.loads(_run_gate(None, "status", timeout=15))
-
-
 def pull_status(machine_cfg: dict[str, Any]) -> dict[str, Any]:
     alias = machine_cfg.get("ssh_alias") or None
     status = json.loads(_run_gate(alias, "status", timeout=20))
@@ -61,3 +57,10 @@ def git_info(machine_cfg: dict[str, Any], path: str) -> dict[str, Any]:
     alias = machine_cfg.get("ssh_alias") or None
     out = _run_gate(alias, f"git-info {path}", timeout=20)
     return json.loads(out)
+
+
+def run_command(machine_cfg: dict[str, Any], project: str, key: str) -> str:
+    """Start a projects.toml-declared command on a host (gate validates)."""
+    alias = machine_cfg.get("ssh_alias") or None
+    out = _run_gate(alias, f"run {project} {key}", timeout=30)
+    return out.strip() or "started"

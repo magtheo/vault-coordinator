@@ -198,3 +198,14 @@ export function getJobLog(machine: string, job: string, lines = 50): Promise<Job
     `${API}/machines/${encodeURIComponent(machine)}/jobs/${encodeURIComponent(job)}/log?lines=${lines}`,
   );
 }
+
+export function runProjectCommand(
+  machine: string,
+  project: string,
+  key: string,
+): Promise<{ status: string }> {
+  return fetchJson<{ status: string }>(
+    `${API}/machines/${encodeURIComponent(machine)}/projects/${encodeURIComponent(project)}/commands/${encodeURIComponent(key)}/run`,
+    { method: "POST" },
+  );
+}

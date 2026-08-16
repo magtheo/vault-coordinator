@@ -171,6 +171,7 @@ export interface ProjectOverview {
   tasks: ProjectTask[];
   sessions: ProjectSession[];
   jobs: ProjectJob[];
+  commands: { host: string; key: string }[];
   attention: Attention;
 }
 

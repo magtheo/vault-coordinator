@@ -19,6 +19,11 @@ def load_machine_projects() -> list[dict]:
     with open(PROJECTS_TOML, "rb") as f:
         data = tomllib.load(f)
     return [
-        {"name": p["name"], "host": p.get("host", ""), "path": p.get("path", "")}
+        {
+            "name": p["name"],
+            "host": p.get("host", ""),
+            "path": p.get("path", ""),
+            "commands": list((p.get("commands") or {}).keys()),
+        }
         for p in data.get("project", [])
     ]

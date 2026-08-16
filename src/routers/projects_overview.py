@@ -86,13 +86,17 @@ def compute_overview_sync(request, db):
     }
 
     projects: dict[str, dict] = {}
+    machine_commands: dict[str, list[dict]] = {}
     for mp in load_machine_projects():
-        projects[mp["name"].lower()] = {
+        projects.setdefault(mp["name"].lower(), {
             "name": mp["name"], "source": "machine",
             "host": mp.get("host"), "path": mp.get("path"),
             "repo_id": path_to_repo_id.get((mp.get("path") or "").rstrip("/")),
             "vikunja_ref": None,
-        }
+        })
+        for key in mp.get("commands", []):
+            machine_commands.setdefault(mp["name"].lower(), []).append(
+                {"host": mp["host"], "key": key})
 
     from src.adapters.vikunja import fetch_projects
 
@@ -179,6 +183,7 @@ def compute_overview_sync(request, db):
             "source": p["source"],
             "host": p.get("host"),
             "git": git,
+            "commands": machine_commands.get(p["name"].lower(), []),
             "open_tasks": len(tasks_open),
             "done_tasks": done,
             "overdue_tasks": overdue,
