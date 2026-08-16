@@ -6,7 +6,7 @@ import { TaskDetail } from "./components/TaskDetail";
 import { TodaySchedule } from "./components/TodaySchedule";
 import { MachinesView } from "./components/MachinesView";
 import { ProjectsView } from "./components/ProjectsView";
-import { getTasks, getToday, getMachines, getProjectsOverview } from "./api";
+import { getTasks, getToday, getMachines, getProjectsOverview, getAttention } from "./api";
 
 export default function App() {
   const [view, setView] = useState<View>("today");
@@ -29,6 +29,7 @@ export default function App() {
       queryClient.prefetchQuery({ queryKey: ["today"], queryFn: getToday });
       queryClient.prefetchQuery({ queryKey: ["machines"], queryFn: getMachines });
       queryClient.prefetchQuery({ queryKey: ["projects-overview"], queryFn: getProjectsOverview });
+      queryClient.prefetchQuery({ queryKey: ["attention"], queryFn: getAttention });
     }, 300);
     return () => window.clearTimeout(id);
   }, [queryClient]);

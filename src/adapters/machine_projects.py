@@ -13,7 +13,7 @@ PROJECTS_TOML = Path.home() / "Documents" / "machine" / "projects.toml"
 
 
 def load_machine_projects() -> list[dict]:
-    """Parse projects.toml → [{name, host, path}]. Missing file → []."""
+    """Parse projects.toml -> [{name, host, path}]. Missing file -> []."""
     if not PROJECTS_TOML.exists():
         return []
     with open(PROJECTS_TOML, "rb") as f:

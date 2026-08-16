@@ -31,7 +31,14 @@
 - [x] V-028 perf: background machines cache (30s poll, /api/machines 365ms → 2ms)
 - [x] V-029 perf: TanStack Query client cache + stale-while-revalidate + all-tab prefetch
 - [x] V-030 POST /api/machines/refresh (pull-to-refresh path)
-
 - [x] V-031 machine-projects adapter (projects.toml parse, server clone)
 - [x] V-032 GET /api/projects/overview — joined view (tasks+sessions+jobs per project)
 - [x] V-033 PWA Projects tab (adaptive cards + detail sheet, cached + prefetched)
+
+- [x] V-034 machine-status v3: panes, job-log, git-info (path-validated) verbs
+- [x] V-035 machines cache enriched with per-project git info
+- [x] V-036 GET /machines/{m}/jobs/{j}/log (tail, 5-200 lines)
+- [x] V-037 overview v2: attention model (failed jobs/overdue/host-down), git chips, session panes, overdue tasks
+- [x] V-038 GET /api/attention (Today strip)
+- [x] V-039 PWA Projects v2: AI insights card (advisory-only glm-5.1, cached 10m), inline task complete, log modal, session pane expand, attention sorting
+- [x] V-040 Today tab attention strip

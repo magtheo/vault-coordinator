@@ -141,13 +141,15 @@ export interface ProjectTask {
   alias: string;
   title: string;
   kind: string;
+  due_date?: string | null;
+  overdue?: boolean;
 }
 
 export interface ProjectSession {
   host: string;
   name: string;
   windows: number;
-  created: string;
+  panes?: PaneInfo[];
 }
 
 export interface ProjectJob {
@@ -162,15 +164,70 @@ export interface ProjectOverview {
   name: string;
   source: string;
   host: string | null;
+  git?: GitInfo | null;
   open_tasks: number;
   done_tasks: number;
+  overdue_tasks: number;
   tasks: ProjectTask[];
   sessions: ProjectSession[];
   jobs: ProjectJob[];
+  attention: Attention;
 }
 
 export interface ProjectsOverviewResponse {
   projects: ProjectOverview[];
+}
+
+// ─── Actionable overview additions ─────────────────────────────────────
+
+export interface GitInfo {
+  project?: string;
+  path: string;
+  branch?: string;
+  dirty?: boolean;
+  commit_age_min?: number | null;
+  last_subject?: string;
+  unpushed?: number;
+  error?: string;
+}
+
+export interface PaneInfo {
+  window: string;
+  window_name: string;
+  command: string;
+}
+
+export interface Attention {
+  failed_jobs: number;
+  overdue_tasks: number;
+  host_down: boolean;
+  score: number;
+}
+
+export interface Alert {
+  type: string;
+  severity: "high" | "medium";
+  message: string;
+  machine?: string;
+  job?: string;
+  alias?: string;
+}
+
+export interface AttentionResponse {
+  alerts: Alert[];
+}
+
+export interface AiSummaryResponse {
+  summary: string;
+  generated_at: number;
+  model: string;
+  cached: boolean;
+}
+
+export interface JobLogResponse {
+  machine: string;
+  job: string;
+  log: string;
 }
 
 // ─── View state ────────────────────────────────────────────────────────

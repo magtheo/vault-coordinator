@@ -45,6 +45,13 @@ class MachineConfig(BaseModel):
     ssh_alias: str = ""            # empty → localhost (subprocess, no ssh)
 
 
+class AIConfig(BaseModel):
+    base_url: str = "https://api.z.ai/api/coding/paas/v4"
+    model: str = "glm-5.1"
+    api_key: str = ""               # via ${GLM_API_KEY} in config.yaml
+    summary_ttl_seconds: int = 600
+
+
 class AppConfig(BaseModel):
     coordinator: CoordinatorConfig
     vikunja: VikunjaConfig
@@ -53,6 +60,7 @@ class AppConfig(BaseModel):
     repos: list[RepoConfig] = []
     machines: list[MachineConfig] = []
     machines_poll_seconds: int = 30
+    ai: AIConfig = AIConfig()
     auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300
 

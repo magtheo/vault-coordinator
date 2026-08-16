@@ -672,3 +672,23 @@ html, body {
 .machine-sessions { display: flex; flex-wrap: wrap; gap: 6px; }
 .machine-chip { background: var(--bg-chip, #eee); border-radius: 10px; padding: 3px 10px; font-size: 0.8rem; }
 .machine-error { color: var(--danger, #c33); font-size: 0.8rem; padding: 6px 12px; }
+
+/* ── Actionable overview: AI card, attention, logs, panes ── */
+.ai-card { margin: 12px; padding: 12px 14px; border: 1px solid var(--border, #ddd); border-radius: 12px; background: var(--bg-card, #f8f8f8); }
+.ai-head { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
+.ai-body { font-size: 0.88rem; line-height: 1.45; }
+.ai-body p { margin: 0 0 6px; }
+.ai-body ul { margin: 4px 0; padding-left: 18px; }
+.attention-strip { margin: 0 12px 8px; display: flex; flex-direction: column; gap: 4px; }
+.attention-item { font-size: 0.85rem; padding: 6px 10px; border-radius: 8px; background: var(--bg-chip, #eee); }
+.attention-item.high { background: #fde8e8; color: #a33; }
+.attention-item.medium { background: #fff4dd; color: #963; }
+.attention-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.attention-chip { font-size: 0.78rem; color: #a33; font-weight: 600; }
+.needs-attention { border-color: #e88; }
+.session-block { padding: 6px 0; }
+.pane-row { display: flex; justify-content: space-between; padding: 2px 0 2px 14px; font-size: 0.82rem; }
+.pane-win { color: var(--muted, #888); }
+.log-actions { display: flex; gap: 8px; margin: 8px 0; }
+.log-pre { font-size: 0.75rem; line-height: 1.35; background: #1e1e1e; color: #ddd; padding: 10px; border-radius: 8px; overflow-x: auto; max-height: 55vh; overflow-y: auto; white-space: pre-wrap; }
+.log-sheet { max-height: 80vh; }

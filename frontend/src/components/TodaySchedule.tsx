@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Task } from "../types";
-import { getToday, getTasks, createTask } from "../api";
+import { getToday, getTasks, createTask, getAttention } from "../api";
+import type { Alert } from "../types";
 
 interface Props {
   onSelectTask: (task: Task) => void;
@@ -15,6 +16,12 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
   const [captureBusy, setCaptureBusy] = useState(false);
 
   const todayQuery = useQuery({ queryKey: ["today"], queryFn: getToday });
+  const attentionQuery = useQuery({
+    queryKey: ["attention"],
+    queryFn: getAttention,
+    refetchInterval: 30_000,
+  });
+  const alerts: Alert[] = attentionQuery.data?.alerts ?? [];
   const tasksQuery = useQuery({ queryKey: ["tasks"], queryFn: getTasks });
 
   const today = todayQuery.data;
@@ -120,6 +127,16 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
       ) : (
         <div className="quick-capture-trigger" onClick={() => setShowCapture(true)}>
           + Quick capture
+        </div>
+      )}
+
+      {alerts.length > 0 && (
+        <div className="attention-strip">
+          {alerts.slice(0, 5).map((a, i) => (
+            <div key={i} className={`attention-item ${a.severity}`}>
+              {a.severity === "high" ? "🔴" : "🟡"} {a.message}
+            </div>
+          ))}
         </div>
       )}
 

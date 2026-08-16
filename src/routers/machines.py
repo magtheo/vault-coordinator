@@ -1,9 +1,7 @@
-"""Machines router — cached host status (jobs, sessions) + stop-job + refresh.
+"""Machines router — cached host status, stop-job, job logs, refresh.
 
-Serves the background-polled projection (src/machines_cache.py) instantly;
-`POST /api/machines/refresh` forces a fresh pull. Sessions/jobs are ephemeral
-projections (design §4) — no DB persistence, no tombstones. Age is exposed so
-the PWA can show staleness per the invariants' model.
+Serves the background-polled projection (src/machines_cache.py) instantly.
+Sessions/jobs are ephemeral projections (design §4) — no DB persistence.
 """
 from __future__ import annotations
 
@@ -11,7 +9,7 @@ import re
 
 from fastapi import APIRouter, HTTPException, Request
 
-from src.adapters.machines import stop_job
+from src.adapters.machines import job_log, stop_job
 from src.config import get_config
 
 router = APIRouter()
@@ -62,6 +60,26 @@ async def stop_remote_job(name: str, job_name: str, request: Request):
         result = stop_job(m, job_name)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(e)[:200])
-    # refresh the cached projection so the next GET reflects the stop
     await _cache(request).refresh()
     return {"status": "ok", "machine": name, "job": job_name, "result": result}
+
+
+@router.get("/machines/{name}/jobs/{job_name}/log")
+async def get_job_log(name: str, job_name: str, lines: int = 50):
+    if not _JOB_NAME.match(job_name):
+        raise HTTPException(status_code=400, detail="invalid job name")
+    lines = max(5, min(lines, 200))
+    m = _find_machine(name)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"unknown machine {name}")
+    try:
+        log_text = await _run(job_log, m, job_name, lines)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(e)[:200])
+    return {"machine": name, "job": job_name, "log": log_text}
+
+
+async def _run(fn, *args):
+    import asyncio
+
+    return await asyncio.get_running_loop().run_in_executor(None, fn, *args)

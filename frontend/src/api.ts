@@ -7,6 +7,9 @@ import type {
   ProjectsResponse,
   ProjectsOverviewResponse,
   MachinesResponse,
+  AttentionResponse,
+  AiSummaryResponse,
+  JobLogResponse,
 } from "./types";
 
 const API = "/api";
@@ -174,4 +177,24 @@ export function stopMachineJob(machine: string, job: string): Promise<{ status: 
 
 export function getProjectsOverview(): Promise<ProjectsOverviewResponse> {
   return fetchJson<ProjectsOverviewResponse>(`${API}/projects/overview`);
+}
+
+// ─── Attention + AI + logs ─────────────────────────────────────────────
+
+export function getAttention(): Promise<AttentionResponse> {
+  return fetchJson<AttentionResponse>(`${API}/attention`);
+}
+
+export function getAiSummary(force = false): Promise<AiSummaryResponse> {
+  return fetchJson<AiSummaryResponse>(`${API}/ai/summary`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force }),
+  });
+}
+
+export function getJobLog(machine: string, job: string, lines = 50): Promise<JobLogResponse> {
+  return fetchJson<JobLogResponse>(
+    `${API}/machines/${encodeURIComponent(machine)}/jobs/${encodeURIComponent(job)}/log?lines=${lines}`,
+  );
 }

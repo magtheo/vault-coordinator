@@ -5,6 +5,10 @@ vault Invariants' source model: hosts are authoritative systems, the
 coordinator holds a read projection. `/api/machines` serves the cached
 snapshot instantly; a background task refreshes it on an interval; explicit
 refresh is available for the pull-to-refresh path.
+
+Each snapshot is enriched with per-project git info (branch/dirty/last
+commit) for projects whose host matches the machine — read via the same
+machine-status allowlist (`git-info`, projects.toml-path-validated).
 """
 from __future__ import annotations
 
@@ -13,7 +17,8 @@ import logging
 import time
 from typing import Any
 
-from .adapters.machines import pull_status
+from .adapters.machines import git_info, pull_status
+from .adapters.machine_projects import load_machine_projects
 
 log = logging.getLogger("vault.machines")
 
@@ -29,21 +34,40 @@ class MachinesCache:
 
     async def _pull_all(self) -> dict[str, Any]:
         loop = asyncio.get_running_loop()
+        projects = load_machine_projects()
         out: list[dict[str, Any]] = []
         for m in self._cfg:
             try:
                 status = await loop.run_in_executor(None, pull_status, m)
-                out.append({**status, "reachable": True, "error": None})
+                status["reachable"] = True
+                status["error"] = None
             except Exception as e:  # noqa: BLE001 — per-host isolation by design
-                out.append({
+                status = {
                     "name": m["name"],
                     "host": m.get("ssh_alias") or "localhost",
                     "timestamp": None,
                     "jobs": [],
                     "sessions": [],
+                    "panes": [],
                     "reachable": False,
                     "error": str(e)[:200],
-                })
+                }
+            # git enrichment: projects hosted on this machine
+            git_entries: list[dict[str, Any]] = []
+            for p in projects:
+                if p.get("host") != m["name"] or not p.get("path"):
+                    continue
+                try:
+                    info = await loop.run_in_executor(
+                        None, git_info, m, p["path"])
+                    info["project"] = p["name"]
+                    git_entries.append(info)
+                except Exception as e:  # noqa: BLE001
+                    git_entries.append(
+                        {"project": p["name"], "path": p["path"],
+                         "error": str(e)[:120]})
+            status["git"] = git_entries
+            out.append(status)
         self._snapshot = {"machines": out}
         self._pulled_at = time.time()
         log.info("machines cache refreshed: %s",
