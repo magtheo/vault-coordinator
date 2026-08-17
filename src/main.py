@@ -1,6 +1,7 @@
 """Vault Coordinator — FastAPI application."""
 from __future__ import annotations
 
+import hmac
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -91,7 +92,7 @@ async def token_auth(request: Request, call_next):
     token = getattr(token, "auth_token", "") if token else ""
     if token and request.url.path.startswith("/api"):
         auth = request.headers.get("Authorization", "")
-        if auth != f"Bearer {token}":
+        if not hmac.compare_digest(auth, f"Bearer {token}"):
             from fastapi.responses import JSONResponse
 
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
@@ -119,9 +120,11 @@ if _frontend_dist.exists():
     # SPA fallback: all non-API routes serve index.html
     @app.get("/{full_path:path}")
     async def spa_fallback(full_path: str, request: Request):
-        # Try to serve a real file first
-        file_path = _frontend_dist / full_path
-        if full_path and file_path.is_file():
+        # Serve a real file, but never escape dist — %2e-decoded ".."
+        # traverses to arbitrary files (incl. config.yaml = the token)
+        dist = _frontend_dist.resolve()
+        file_path = (_frontend_dist / full_path).resolve()
+        if full_path and file_path.is_file() and file_path.is_relative_to(dist):
             return FileResponse(str(file_path))
         # Fallback to index.html for SPA routing
         return FileResponse(str(_frontend_dist / "index.html"))
