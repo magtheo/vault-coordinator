@@ -44,5 +44,6 @@
 - [x] V-041 curated run-commands: machine-status run verb (per-host registry match, command text never crosses the wire)
 - [x] V-042 POST /machines/{m}/projects/{p}/commands/{k}/run
 - [x] V-043 overview exposes declared commands (host+key) for PWA Run buttons
-
 - [x] V-044 security: SPA fallback path traversal fixed (arbitrary file read incl. config.yaml unauthenticated); token compare now constant-time
+- [x] V-045 ICS subscription sync worker: Google Calendar secret-ICS feeds → Radicale replicas (hourly, content-hash fast path, DTSTAMP-normalized per-UID diff, confirm-debounce vs Google export non-determinism, deletion mirror + mass-delete guard, ntfy failure alerts, drift heal every 24 runs); fixed ntfy credentials missing in config.yaml (reminders were 401ing silently)
+

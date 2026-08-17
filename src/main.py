@@ -43,6 +43,11 @@ async def lifespan(app: FastAPI):
 
     db.close()
 
+    # ICS subscription sync jobs (external feeds → Radicale replicas)
+    from src.ics_sync import start_ics_sync_jobs
+
+    ics_jobs = start_ics_sync_jobs(config)
+
     # Machines background cache (hosts as a synced projection — design §4)
     from src.machines_cache import MachinesCache
 
@@ -55,9 +60,10 @@ async def lifespan(app: FastAPI):
     app.state.machines_cache = machines_cache
 
     logging.getLogger("vault").info(
-        "Restored %d reminders, reconciled %d orphaned schedules",
+        "Restored %d reminders, reconciled %d orphaned schedules, %d ICS sync jobs",
         restored,
         orphaned,
+        ics_jobs,
     )
 
     yield

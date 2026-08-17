@@ -45,6 +45,24 @@ class MachineConfig(BaseModel):
     ssh_alias: str = ""            # empty → localhost (subprocess, no ssh)
 
 
+class IcsSubscription(BaseModel):
+    """External read-only ICS feed replicated into a Radicale calendar.
+
+    The feed (e.g. Google Calendar secret iCal URL) is the source of truth;
+    the Radicale collection is a one-way replica owned by this worker.
+    """
+    name: str                      # stable id (job id, state key) — e.g. "sa-calendar"
+    url: str                       # secret ICS feed URL
+    collection: str                # Radicale collection path segment
+    display_name: str = ""         # calendar display name (MKCOL)
+    color: str = "#3F51B5"         # calendar color (MKCOL)
+    interval_seconds: int = 3600   # poll interval
+    confirm_delay_seconds: int = 45  # debounce delay between confirm fetches
+    verify_every_n_runs: int = 24  # force full rewrite every N runs (drift heal)
+    mass_delete_guard: float = 0.5 # skip deletions if feed shrinks below this fraction
+
+
+
 class AIConfig(BaseModel):
     base_url: str = "https://api.z.ai/api/coding/paas/v4"
     model: str = "glm-5.1"
@@ -60,6 +78,7 @@ class AppConfig(BaseModel):
     repos: list[RepoConfig] = []
     machines: list[MachineConfig] = []
     machines_poll_seconds: int = 30
+    ics_subscriptions: list[IcsSubscription] = []
     ai: AIConfig = AIConfig()
     auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300

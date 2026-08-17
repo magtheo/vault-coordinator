@@ -259,6 +259,11 @@ def init_scheduler(config: AppConfig) -> None:
     logger.info("APScheduler started")
 
 
+def get_scheduler() -> AsyncIOScheduler | None:
+    """The shared scheduler instance (or None before init_scheduler)."""
+    return _scheduler
+
+
 def shutdown_scheduler() -> None:
     """Shutdown the scheduler. Call on app shutdown."""
     global _scheduler

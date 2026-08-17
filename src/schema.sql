@@ -55,6 +55,25 @@ CREATE TABLE IF NOT EXISTS sync_state (
     consecutive_failures INTEGER DEFAULT 0
 );
 
+-- ICS subscription sync (external feed → Radicale replica)
+-- Per-UID content hashes; one row per (subscription, UID)
+CREATE TABLE IF NOT EXISTS ics_sync_items (
+    subscription TEXT NOT NULL,
+    uid TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (subscription, uid)
+);
+
+-- ICS subscription metadata (fast-path skip + run counter for periodic heal)
+CREATE TABLE IF NOT EXISTS ics_sync_meta (
+    subscription TEXT PRIMARY KEY,
+    feed_hash TEXT,
+    run_count INTEGER DEFAULT 0,
+    last_sync TEXT
+);
+
 -- Notification delivery log (idempotency + lifecycle)
 CREATE TABLE IF NOT EXISTS notifications (
     idempotency_key TEXT PRIMARY KEY,
