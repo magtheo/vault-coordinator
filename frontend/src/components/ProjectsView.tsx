@@ -10,7 +10,15 @@ import {
   getJobLog,
   completeTask,
   runProjectCommand,
+  getTasks,
 } from "../api";
+
+// Slug rule mirrors src/adapters/vault.py (incl. override)
+const SLUG_OVERRIDES: Record<string, string> = { "hermes dual-bot": "hermes" };
+function slugify(name: string): string {
+  const key = name.trim().toLowerCase();
+  return SLUG_OVERRIDES[key] ?? key.replace(/\s+/g, "-");
+}
 
 interface Props {
   onSelectTask: (task: Task) => void;
@@ -19,6 +27,8 @@ interface Props {
 
 export function ProjectsView({ onSelectTask, onToast }: Props) {
   const queryClient = useQueryClient();
+  // All Vikunja tasks — filtered per project by tag in the detail sheet
+  const allTasksQuery = useQuery({ queryKey: ["tasks"], queryFn: () => getTasks() });
   const [open, setOpen] = useState<ProjectOverview | null>(null);
   const [logJob, setLogJob] = useState<{ host: string; name: string } | null>(null);
 
@@ -80,6 +90,7 @@ export function ProjectsView({ onSelectTask, onToast }: Props) {
     project_ref: null,
     freshness: "fresh",
     scheduled: false,
+    labels: null,
     capabilities: {
       edit: t.kind === "vikunja_task",
       complete: t.kind === "vikunja_task",
@@ -268,6 +279,43 @@ export function ProjectsView({ onSelectTask, onToast }: Props) {
             </>
           )}
 
+          {/* Tasks tagged with this project (Vikunja labels) */}
+          {(() => {
+            const slug = slugify(open.name);
+            const tagged = (allTasksQuery.data?.tasks ?? []).filter(
+              (t) =>
+                t.kind === "vikunja_task" &&
+                t.source_status !== "done" &&
+                (t.labels ?? []).some((l) => l.title === slug),
+            );
+            if (tagged.length === 0) return null;
+            return (
+              <>
+                <div className="section-label">Tagged #{slug} ({tagged.length})</div>
+                <div className="task-list" style={{ marginBottom: 12 }}>
+                  {tagged.map((t) => (
+                    <div key={t.ref} className="machine-job">
+                      <div
+                        className="task-content"
+                        onClick={() => {
+                          setOpen(null);
+                          onSelectTask(t);
+                        }}
+                      >
+                        <div className="task-title">{t.title}</div>
+                        {t.due_date && !t.due_date.startsWith("0001-") && (
+                          <div className="task-meta">
+                            due {new Date(t.due_date).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+
           <div className="section-label">
             Tasks · {open.open_tasks} open{open.overdue_tasks > 0 ? ` (${open.overdue_tasks} overdue)` : ""}, {open.done_tasks} done
           </div>
@@ -306,7 +354,7 @@ export function ProjectsView({ onSelectTask, onToast }: Props) {
         </div>
       )}
 
-      {/* Log modal */}
+          {/* Log modal */}
       {logJob && (
         <LogModal
           host={logJob.host}

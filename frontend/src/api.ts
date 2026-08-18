@@ -2,6 +2,8 @@ import type {
   TasksResponse,
   ScheduleResponse,
   TodayResponse,
+  RangeResponse,
+  RegistryResponse,
   SyncResponse,
   MutationResponse,
   ProjectsResponse,
@@ -10,6 +12,7 @@ import type {
   AttentionResponse,
   AiSummaryResponse,
   JobLogResponse,
+  Label,
 } from "./types";
 
 const API = "/api";
@@ -81,6 +84,28 @@ export function getToday(): Promise<TodayResponse> {
   return fetchJson<TodayResponse>(`${API}/schedule/today`);
 }
 
+export function getScheduleRange(from: string, to: string): Promise<RangeResponse> {
+  return fetchJson<RangeResponse>(
+    `${API}/schedule/range?from=${from}&to=${to}`,
+  );
+}
+
+export function getRegistry(): Promise<RegistryResponse> {
+  return fetchJson<RegistryResponse>(`${API}/projects/registry`);
+}
+
+export function getLabels(): Promise<Label[]> {
+  return fetchJson<Label[]>(`${API}/labels`);
+}
+
+export function appendScratchpad(body: {
+  project: string | null;
+  heading: string;
+  body: string;
+}): Promise<{ committed: boolean; commit_message: string }> {
+  return fetchJson(`${API}/scratchpad`, jsonBody("POST", body));
+}
+
 export function getProjects(): Promise<ProjectsResponse> {
   return fetchJson<ProjectsResponse>(`${API}/projects`);
 }
@@ -93,10 +118,25 @@ export function createTask(opts: {
   priority?: number;
   due_date?: string;
   description?: string;
+  label_ids?: number[];
 }): Promise<MutationResponse> {
   return fetchJson<MutationResponse>(
     `${API}/tasks`,
     jsonBody("POST", { request_id: uuid(), ...opts }),
+  );
+}
+
+export function attachLabel(alias: string, labelId: number): Promise<{ labels: Label[] }> {
+  return fetchJson(
+    `${API}/tasks/${encodeURIComponent(alias)}/labels/${labelId}`,
+    { method: "PUT" },
+  );
+}
+
+export function detachLabel(alias: string, labelId: number): Promise<{ labels: Label[] }> {
+  return fetchJson(
+    `${API}/tasks/${encodeURIComponent(alias)}/labels/${labelId}`,
+    { method: "DELETE" },
   );
 }
 

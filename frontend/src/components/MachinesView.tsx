@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MachinesResponse, Machine } from "../types";
+import type { Machine } from "../types";
 import { getMachines, refreshMachines, stopMachineJob } from "../api";
 
 interface Props {

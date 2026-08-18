@@ -7,7 +7,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from src.database import get_db
@@ -218,26 +218,8 @@ async def schedule(req: ScheduleRequest, request: Request, db=Depends(get_db)):
     return response_data
 
 
-@router.get("/schedule/today")
-async def todays_schedule(request: Request, db=Depends(get_db)):
-    """Get today's scheduled time blocks from Radicale.
-    Returns structured JSON with parsed event data + relationship info.
-    """
-    config = request.app.state.config
-    cal_config = config.radicale
-
-    now = datetime.now(timezone.utc)
-    from src.adapters.radicale import get_events_range
-
-    raw_events = await get_events_range(
-        cal_config.url,
-        cal_config.username,
-        cal_config.password,
-        cal_config.calendar,
-        now,
-        now,
-    )
-
+async def _parse_raw_events(db, raw_events: list[dict]) -> list[dict]:
+    """Parse Radicale REPORT results into structured event dicts."""
     from icalendar import Calendar
     from src.models import get_relationship_by_event_uid
 
@@ -299,9 +281,64 @@ async def todays_schedule(request: Request, db=Depends(get_db)):
                 })
         except Exception:
             continue
+    events.sort(key=lambda e: e["start"] or "")
+    return events
 
-    events.sort(key=lambda e: e.get("start") or "")
-    return {"events": events, "date": now.strftime("%Y-%m-%d")}
+
+@router.get("/schedule/range")
+async def schedule_range(
+    from_: str = Query(..., alias="from", description="ISO date, e.g. 2026-08-01"),
+    to_: str = Query(..., alias="to", description="ISO date (inclusive), e.g. 2026-08-31"),
+    request: Request = None,
+    db=Depends(get_db),
+):
+    """Events in an inclusive date range (local server timezone)."""
+    config = request.app.state.config
+    cal_config = config.radicale
+
+    start = datetime.fromisoformat(from_).replace(
+        hour=0, minute=0, second=0, tzinfo=timezone.utc
+    )
+    end = datetime.fromisoformat(to_).replace(
+        hour=23, minute=59, second=59, tzinfo=timezone.utc
+    )
+
+    from src.adapters.radicale import get_events_range
+
+    raw_events = await get_events_range(
+        cal_config.url,
+        cal_config.username,
+        cal_config.password,
+        cal_config.calendar,
+        start,
+        end,
+    )
+    events = await _parse_raw_events(db, raw_events)
+    return {"from": from_, "to": to_, "events": events}
+
+
+@router.get("/schedule/today")
+async def todays_schedule(request: Request, db=Depends(get_db)):
+    """Get today's scheduled time blocks from Radicale.
+    Returns structured JSON with parsed event data + relationship info.
+    """
+    config = request.app.state.config
+    cal_config = config.radicale
+
+    now = datetime.now(timezone.utc)
+    from src.adapters.radicale import get_events_range
+
+    raw_events = await get_events_range(
+        cal_config.url,
+        cal_config.username,
+        cal_config.password,
+        cal_config.calendar,
+        now,
+        now,
+    )
+
+    events = await _parse_raw_events(db, raw_events)
+    return {"events": events, "date": now.date().isoformat()}
 
 
 def _now_iso() -> str:

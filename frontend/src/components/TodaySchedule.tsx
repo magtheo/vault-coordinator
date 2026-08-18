@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Task } from "../types";
-import { getToday, getTasks, createTask, getAttention } from "../api";
-import type { Alert } from "../types";
+import { getToday, getTasks, completeTask } from "../api";
+import { CaptureBox, lastUsedLabelIds } from "./CaptureBox";
 
 interface Props {
   onSelectTask: (task: Task) => void;
@@ -11,21 +11,13 @@ interface Props {
 
 export function TodaySchedule({ onSelectTask, onToast }: Props) {
   const queryClient = useQueryClient();
-  const [showCapture, setShowCapture] = useState(false);
-  const [captureTitle, setCaptureTitle] = useState("");
-  const [captureBusy, setCaptureBusy] = useState(false);
+  const [completedLocal, setCompletedLocal] = useState<Set<string>>(new Set());
+  const defaults = lastUsedLabelIds();
 
   const todayQuery = useQuery({ queryKey: ["today"], queryFn: getToday });
-  const attentionQuery = useQuery({
-    queryKey: ["attention"],
-    queryFn: getAttention,
-    refetchInterval: 30_000,
-  });
-  const alerts: Alert[] = attentionQuery.data?.alerts ?? [];
-  const tasksQuery = useQuery({ queryKey: ["tasks"], queryFn: getTasks });
+  const tasksQuery = useQuery({ queryKey: ["tasks"], queryFn: () => getTasks() });
 
   const today = todayQuery.data;
-  const tasksData = tasksQuery.data;
   const loading = todayQuery.isPending || tasksQuery.isPending;
   const error =
     todayQuery.error instanceof Error
@@ -39,23 +31,7 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
     queryClient.invalidateQueries({ queryKey: ["tasks"] });
   };
 
-  const handleQuickCapture = async () => {
-    if (!captureTitle.trim()) return;
-    setCaptureBusy(true);
-    try {
-      await createTask({ title: captureTitle.trim() });
-      onToast("Task created", true);
-      setCaptureTitle("");
-      setShowCapture(false);
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : "Capture failed", false);
-    } finally {
-      setCaptureBusy(false);
-    }
-  };
-
-  const events = today?.events ?? [];
+  const events = (today?.events ?? []).filter((e) => e.start);
   const dateLabel = today
     ? new Date(today.date + "T00:00:00").toLocaleDateString("en-US", {
         weekday: "long",
@@ -64,26 +40,40 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
       })
     : "";
 
-  // Unscheduled tasks: overdue/due-today Vikunja tasks + repo tasks in progress
-  const allTasks = tasksData?.tasks ?? [];
-  const unscheduled = allTasks.filter((t) => {
-    if (t.scheduled) return false;
+  // Now / next event
+  const nowMs = Date.now();
+  const nextEvent = events.find((e) => new Date(e.end ?? e.start!).getTime() > nowMs);
+  const currentEvent = events.find(
+    (e) =>
+      new Date(e.start!).getTime() <= nowMs &&
+      new Date(e.end ?? e.start!).getTime() > nowMs,
+  );
+
+  // Strictly due/overdue Vikunja tasks
+  const dueTasks = (tasksQuery.data?.tasks ?? []).filter((t) => {
+    if (t.kind !== "vikunja_task") return false;
     if (t.source_status === "done") return false;
-    // Vikunja: show overdue or due today
-    if (t.kind === "vikunja_task") {
-      if (!t.due_date || t.due_date.startsWith("0001-")) {
-        // No due date — include it (it's in the inbox)
-        return true;
-      }
-      const due = new Date(t.due_date);
-      const today_end = new Date();
-      today_end.setHours(23, 59, 59);
-      return due <= today_end;
+    if (completedLocal.has(t.ref)) return false;
+    if (!t.due_date || t.due_date.startsWith("0001-")) return false;
+    return new Date(t.due_date).getTime() <= nowMs + 36e5 * 24; // due today or overdue
+  });
+
+  async function quickComplete(task: Task) {
+    // Optimistic
+    setCompletedLocal((prev) => new Set(prev).add(task.ref));
+    try {
+      await completeTask(task.ref);
+      onToast("Completed", true);
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    } catch (e) {
+      setCompletedLocal((prev) => {
+        const next = new Set(prev);
+        next.delete(task.ref);
+        return next;
+      });
+      onToast(e instanceof Error ? e.message : "Failed", false);
     }
-    // Repo tasks: show only "in progress" (not done, has description or is active)
-    // For simplicity, show first 5 unscheduled repo tasks
-    return false;
-  }).slice(0, 8);
+  }
 
   function formatTime(iso: string | null): string {
     if (!iso) return "";
@@ -105,50 +95,34 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
         <button className="sync-btn" onClick={refresh}>↻</button>
       </div>
 
-      {/* Quick capture */}
-      {showCapture ? (
-        <div className="capture-bar">
-          <input
-            type="text"
-            placeholder="Task title…"
-            value={captureTitle}
-            onChange={(e) => setCaptureTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleQuickCapture()}
-            autoFocus
-            className="capture-input"
-          />
-          <button className="btn-primary btn-sm" onClick={handleQuickCapture} disabled={captureBusy}>
-            {captureBusy ? "…" : "Add"}
-          </button>
-          <button className="btn-secondary btn-sm" onClick={() => { setShowCapture(false); setCaptureTitle(""); }}>
-            ✕
-          </button>
-        </div>
-      ) : (
-        <div className="quick-capture-trigger" onClick={() => setShowCapture(true)}>
-          + Quick capture
-        </div>
-      )}
-
-      {alerts.length > 0 && (
-        <div className="attention-strip">
-          {alerts.slice(0, 5).map((a, i) => (
-            <div key={i} className={`attention-item ${a.severity}`}>
-              {a.severity === "high" ? "🔴" : "🟡"} {a.message}
-            </div>
-          ))}
-        </div>
-      )}
+      <CaptureBox onToast={onToast} defaultLabelIds={defaults} />
 
       {loading && <div className="loading">Loading…</div>}
       {error && <div className="error-text">{error}</div>}
 
       {!loading && !error && (
         <>
-          {/* Today's time blocks */}
+          {(currentEvent || nextEvent) && (
+            <div className="today-section">
+              <div className="section-label">{currentEvent ? "Now" : "Next"}</div>
+              <div className="next-event-card">
+                <div className="event-time">
+                  {formatTime((currentEvent ?? nextEvent)!.start)} –{" "}
+                  {formatTime((currentEvent ?? nextEvent)!.end)}
+                </div>
+                <div className="event-title">{(currentEvent ?? nextEvent)!.summary}</div>
+                {(currentEvent ?? nextEvent)!.linked_alias && (
+                  <div className="event-link">
+                    🔗 {(currentEvent ?? nextEvent)!.linked_title || (currentEvent ?? nextEvent)!.linked_alias}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {events.length > 0 && (
             <div className="today-section">
-              <div className="section-label">Scheduled blocks</div>
+              <div className="section-label">Schedule</div>
               {events.map((event) => (
                 <div key={event.uid} className="today-event">
                   <div className="event-time">
@@ -156,49 +130,54 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
                   </div>
                   <div className="event-title">{event.summary}</div>
                   {event.linked_alias && (
-                    <div className="event-link">
-                      🔗 {event.linked_title || event.linked_alias}
-                    </div>
+                    <div className="event-link">🔗 {event.linked_title || event.linked_alias}</div>
                   )}
                 </div>
               ))}
             </div>
           )}
 
-          {/* Unscheduled tasks needing attention */}
-          {unscheduled.length > 0 && (
-            <div className="today-section">
-              <div className="section-label">Needs scheduling</div>
-              {unscheduled.map((task) => (
-                <div
-                  key={task.id}
-                  className="task-item"
-                  onClick={() => onSelectTask(task)}
-                >
-                  <div className="task-content">
-                    <div className="task-title">
-                      <span className={`task-source ${task.source}`}>
-                        {task.source === "vikunja" ? "V" : "G"}
-                      </span>
-                      {task.title}
-                    </div>
+          <div className="today-section">
+            <div className="section-label">
+              Tasks due {dueTasks.length > 0 && `(${dueTasks.length})`}
+            </div>
+            {dueTasks.length === 0 && (
+              <div className="empty-state">Nothing due. Enjoy.</div>
+            )}
+            {dueTasks.map((task) => {
+              const overdue =
+                task.due_date && new Date(task.due_date).getTime() < nowMs - 36e5 * 24;
+              return (
+                <div key={task.id} className="task-item">
+                  <button
+                    className="task-check"
+                    onClick={() => quickComplete(task)}
+                    title="Complete"
+                  >
+                    {completedLocal.has(task.ref) ? "✓" : ""}
+                  </button>
+                  <div className="task-content" onClick={() => onSelectTask(task)}>
+                    <div className="task-title">{task.title}</div>
                     <div className="task-meta">
-                      {task.due_date && !task.due_date.startsWith("0001-") && "⚠ overdue · "}
-                      {task.project_ref?.replace("vikunja:project:", "#").replace("repo:", "")}
+                      {overdue && <span className="overdue-chip">overdue</span>}
+                      {task.due_date && (
+                        <span>
+                          {" "}
+                          {new Date(task.due_date).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </span>
+                      )}
+                      {(task.labels ?? []).map((l) => (
+                        <span key={l.id} className="label-chip static">#{l.title}</span>
+                      ))}
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {events.length === 0 && unscheduled.length === 0 && (
-            <div className="empty-state">
-              Nothing scheduled today.
-              <br />
-              Go to Tasks to schedule work.
-            </div>
-          )}
+              );
+            })}
+          </div>
         </>
       )}
     </div>

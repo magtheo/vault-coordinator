@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { Task, Project } from "../types";
-import { editTask, completeTask, reopenTask, getProjects } from "../api";
+import { editTask, completeTask, reopenTask, getProjects, getLabels, attachLabel, detachLabel } from "../api";
 import { ScheduleSheet } from "./ScheduleSheet";
 
 interface Props {
@@ -14,6 +15,14 @@ export function TaskDetail({ task, onClose, onMutated }: Props) {
   const [editing, setEditing] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showLabelPicker, setShowLabelPicker] = useState(false);
+
+  const labelsQuery = useQuery({
+    queryKey: ["labels"],
+    queryFn: getLabels,
+    staleTime: 60_000,
+    enabled: task.kind === "vikunja_task",
+  });
 
   // Editable fields
   const [title, setTitle] = useState(task.title);
@@ -23,11 +32,10 @@ export function TaskDetail({ task, onClose, onMutated }: Props) {
       ? task.due_date.slice(0, 16)
       : "",
   );
-  const [projectId, setProjectId] = useState<number | null>(
-    task.raw && typeof (task.raw as Record<string, unknown>).project_id === "number"
-      ? (task.raw as Record<string, { project_id: number }>).project_id
-      : null,
-  );
+  const [projectId, setProjectId] = useState<number | null>(() => {
+    const raw = task.raw as Record<string, unknown> | null | undefined;
+    return raw && typeof raw.project_id === "number" ? raw.project_id : null;
+  });
 
   const caps = task.capabilities;
 
@@ -82,6 +90,30 @@ export function TaskDetail({ task, onClose, onMutated }: Props) {
       await reopenTask(task.ref);
       onMutated("Task reopened", true);
       onClose();
+    } catch (e) {
+      onMutated(e instanceof Error ? e.message : "Failed", false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAttach(labelId: number) {
+    setBusy(true);
+    try {
+      await attachLabel(task.ref, labelId);
+      onMutated("Label added", true);
+    } catch (e) {
+      onMutated(e instanceof Error ? e.message : "Failed", false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDetach(labelId: number) {
+    setBusy(true);
+    try {
+      await detachLabel(task.ref, labelId);
+      onMutated("Label removed", true);
     } catch (e) {
       onMutated(e instanceof Error ? e.message : "Failed", false);
     } finally {
@@ -220,6 +252,54 @@ export function TaskDetail({ task, onClose, onMutated }: Props) {
                 <span className="info-value">
                   {task.project_ref.replace("repo:", "")}
                 </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Labels (Vikunja tasks) */}
+        {task.kind === "vikunja_task" && !showSchedule && (
+          <div className="detail-labels">
+            <div className="section-label">
+              Labels
+              <button
+                className="btn-secondary btn-xs"
+                onClick={() => setShowLabelPicker((s) => !s)}
+                disabled={busy}
+              >
+                {showLabelPicker ? "done" : "+"}
+              </button>
+            </div>
+            <div className="label-chip-row">
+              {(task.labels ?? []).length === 0 && !showLabelPicker && (
+                <span className="task-meta">none</span>
+              )}
+              {(task.labels ?? []).map((l) => (
+                <button
+                  key={l.id}
+                  className="label-chip static removable"
+                  onClick={() => handleDetach(l.id)}
+                  disabled={busy}
+                  title="Remove label"
+                >
+                  #{l.title} ✕
+                </button>
+              ))}
+            </div>
+            {showLabelPicker && (
+              <div className="label-picker">
+                {(labelsQuery.data ?? [])
+                  .filter((l) => !(task.labels ?? []).some((t) => t.id === l.id))
+                  .map((l) => (
+                    <button
+                      key={l.id}
+                      className="label-chip"
+                      onClick={() => handleAttach(l.id)}
+                      disabled={busy}
+                    >
+                      + #{l.title}
+                    </button>
+                  ))}
               </div>
             )}
           </div>

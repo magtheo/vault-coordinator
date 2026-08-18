@@ -46,9 +46,16 @@
 - [x] V-043 overview exposes declared commands (host+key) for PWA Run buttons
 - [x] V-044 security: SPA fallback path traversal fixed (arbitrary file read incl. config.yaml unauthenticated); token compare now constant-time
 - [x] V-045 ICS subscription sync worker: Google Calendar secret-ICS feeds → Radicale replicas (hourly, content-hash fast path, DTSTAMP-normalized per-UID diff, confirm-debounce vs Google export non-determinism, deletion mirror + mass-delete guard, ntfy failure alerts, drift heal every 24 runs); fixed ntfy credentials missing in config.yaml (reminders were 401ing silently)
-
 - [x] W-001 A0 vault hygiene: baseline commit, scratchpad.md stub + README convention (two-writer discipline documented)
 - [x] W-002 A0 vault adapter (src/adapters/vault.py): slugify w/ overrides (Hermes Dual-Bot→hermes), project scan, scratchpad read/append w/ scoped git commits
 - [x] W-003 A0 vault config section (VaultConfig: root, git identity)
 - [x] W-004 A0 endpoints: GET/POST /api/scratchpad, GET /api/projects/registry (vault ∪ projects.toml, vault wins, code dupes collapse), GET /api/labels, POST /api/labels/seed (idempotent)
 - [x] W-005 A0 acceptance: prepend order verified, 3 scoped commits + clean tree, registry 8 vault + 3 code (11 unique), 15 labels seeded + idempotent re-seed, 401 without token
+
+- [x] W-006 A1 vikunja adapter: label support (create_task w/ label_ids via attach endpoint, attach_label, detach_label)
+- [x] W-007 A1 tasks router: label_ids on create, labels enrichment on GET /tasks, PUT/DELETE /tasks/{alias}/labels/{id} w/ entity re-projection
+- [x] W-008 A1 schedule: GET /schedule/range (from/to aliases), shared _parse_raw_events refactor
+- [x] W-009 A1 PWA shell: Today/Tasks/Calendar/Projects tabs, Machines demoted to header fleet chip overlay, labels prefetch
+- [x] W-010 A1 CaptureBox: #tag autocomplete (arrow/tab/enter keys), chips, inline #tag parsing, last-used default
+- [x] W-011 A1 TaskList: Vikunja-only, grouped (Overdue/Today/This week/Later/No date), filter chips by label usage, quick complete; TaskDetail label editor; Today strict (Now/Next card, schedule, due tasks); CalendarView month grid + day agenda; ProjectsView tagged-tasks section
+- [x] W-012 A1 hygiene: tsc --noEmit enforced in build (fixed 12 latent type errors incl. pre-existing); acceptance: labels 15, range 3 events Aug, capture+attach+detach+complete round-trip, tailnet PWA 200

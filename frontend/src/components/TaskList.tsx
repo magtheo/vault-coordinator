@@ -1,111 +1,143 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Task } from "../types";
-import { getTasks, triggerSync, createTask } from "../api";
+import type { Task, Label } from "../types";
+import { getTasks, completeTask } from "../api";
+import { CaptureBox, lastUsedLabelIds } from "./CaptureBox";
 
 interface Props {
   onSelectTask: (task: Task) => void;
   onToast: (msg: string, ok: boolean) => void;
 }
 
+const DAY = 36e5 * 24;
+
+function dueGroup(t: Task, now: number): string {
+  if (!t.due_date || t.due_date.startsWith("0001-")) return "No date";
+  const due = new Date(t.due_date).getTime();
+  if (due < now - DAY) return "Overdue";
+  if (due <= now + DAY) return "Today";
+  if (due <= now + DAY * 7) return "This week";
+  return "Later";
+}
+
+const GROUP_ORDER = ["Overdue", "Today", "This week", "Later", "No date"];
+
 export function TaskList({ onSelectTask, onToast }: Props) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
-  const [showCapture, setShowCapture] = useState(false);
-  const [captureTitle, setCaptureTitle] = useState("");
-  const [captureBusy, setCaptureBusy] = useState(false);
-  const [hideScheduled, setHideScheduled] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [filterLabel, setFilterLabel] = useState<number | null>(null);
+  const [completedLocal, setCompletedLocal] = useState<Set<string>>(new Set());
 
   const { data, error: qError, isPending } = useQuery({
     queryKey: ["tasks"],
-    queryFn: getTasks,
+    queryFn: () => getTasks(),
   });
 
   const loading = isPending;
   const error = qError instanceof Error ? qError.message : null;
 
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      await triggerSync();
-      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : "Sync failed", false);
-    } finally {
-      setSyncing(false);
+  // Vikunja tasks only — the authoritative task store (repo items live in Projects)
+  const tasks = (data?.tasks ?? []).filter((t) => t.kind === "vikunja_task");
+
+  const labelUsage = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const t of tasks) {
+      for (const l of t.labels ?? []) {
+        counts.set(l.id, (counts.get(l.id) ?? 0) + 1);
+      }
     }
-  };
+    return counts;
+  }, [tasks]);
 
-  const handleQuickCapture = async () => {
-    if (!captureTitle.trim()) return;
-    setCaptureBusy(true);
-    try {
-      await createTask({ title: captureTitle.trim() });
-      onToast("Task created", true);
-      setCaptureTitle("");
-      setShowCapture(false);
-      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : "Capture failed", false);
-    } finally {
-      setCaptureBusy(false);
+  const allLabels: Label[] = useMemo(() => {
+    const seen = new Map<number, Label>();
+    for (const t of tasks) {
+      for (const l of t.labels ?? []) seen.set(l.id, l);
     }
-  };
+    // Labels from the vocabulary endpoint arrive via CaptureBox query cache
+    const cached = queryClient.getQueryData<Label[]>(["labels"]);
+    for (const l of cached ?? []) seen.set(l.id, l);
+    return [...seen.values()].sort(
+      (a, b) => (labelUsage.get(b.id) ?? 0) - (labelUsage.get(a.id) ?? 0) || a.title.localeCompare(b.title),
+    );
+  }, [tasks, labelUsage, queryClient]);
 
-  const tasks = data?.tasks ?? [];
-  let filtered = query
-    ? tasks.filter(
-        (t) =>
-          t.title.toLowerCase().includes(query.toLowerCase()) ||
-          t.ref.toLowerCase().includes(query.toLowerCase()),
-      )
-    : tasks;
+  const now = Date.now();
+  let filtered = tasks.filter(
+    (t) => t.source_status !== "done" && !completedLocal.has(t.ref),
+  );
 
-  if (hideScheduled) {
-    filtered = filtered.filter((t) => !t.scheduled);
+  if (query) {
+    const q = query.toLowerCase();
+    filtered = filtered.filter((t) => t.title.toLowerCase().includes(q));
+  }
+  if (filterLabel !== null) {
+    filtered = filtered.filter((t) => (t.labels ?? []).some((l) => l.id === filterLabel));
+  }
+
+  const groups = useMemo(() => {
+    const g = new Map<string, Task[]>();
+    for (const t of filtered) {
+      const key = dueGroup(t, now);
+      const list = g.get(key) ?? [];
+      list.push(t);
+      g.set(key, list);
+    }
+    for (const list of g.values()) {
+      list.sort((a, b) => {
+        const ad = a.due_date && !a.due_date.startsWith("0001-") ? new Date(a.due_date).getTime() : Infinity;
+        const bd = b.due_date && !b.due_date.startsWith("0001-") ? new Date(b.due_date).getTime() : Infinity;
+        return ad - bd;
+      });
+    }
+    return g;
+  }, [filtered, now]);
+
+  async function quickComplete(task: Task) {
+    setCompletedLocal((prev) => new Set(prev).add(task.ref));
+    try {
+      await completeTask(task.ref);
+      onToast("Completed", true);
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    } catch (e) {
+      setCompletedLocal((prev) => {
+        const next = new Set(prev);
+        next.delete(task.ref);
+        return next;
+      });
+      onToast(e instanceof Error ? e.message : "Failed", false);
+    }
   }
 
   return (
     <div>
-      {/* Sync status bar */}
-      <div className="sync-bar">
-        {data &&
-          Object.entries(data.sync_status).map(([source, status]) => (
-            <span key={source} className="sync-source">
-              <span className={`sync-dot ${status.freshness === "fresh" ? "ok" : status.freshness === "stale" ? "stale" : "error"}`} />
-              {source}
-            </span>
-          ))}
-        <button className="sync-btn" onClick={handleSync}>{syncing ? "… Syncing" : "↻ Sync"}</button>
+      <div className="app-header">
+        <h1>📋 Tasks</h1>
+        <div className="task-count">{filtered.length}</div>
       </div>
 
-      {/* Quick capture */}
-      {showCapture ? (
-        <div className="capture-bar">
-          <input
-            type="text"
-            placeholder="Task title…"
-            value={captureTitle}
-            onChange={(e) => setCaptureTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleQuickCapture()}
-            autoFocus
-            className="capture-input"
-          />
-          <button className="btn-primary btn-sm" onClick={handleQuickCapture} disabled={captureBusy}>
-            {captureBusy ? "…" : "Add"}
-          </button>
-          <button className="btn-secondary btn-sm" onClick={() => { setShowCapture(false); setCaptureTitle(""); }}>
-            ✕
-          </button>
-        </div>
-      ) : (
-        <div className="quick-capture-trigger" onClick={() => setShowCapture(true)}>
-          + Quick capture
-        </div>
-      )}
+      <CaptureBox onToast={onToast} defaultLabelIds={lastUsedLabelIds()} />
 
-      {/* Search + filter */}
+      {/* Filter chips */}
+      <div className="filter-chip-row">
+        <button
+          className={`filter-chip ${filterLabel === null ? "active" : ""}`}
+          onClick={() => setFilterLabel(null)}
+        >
+          All
+        </button>
+        {allLabels.map((l) => (
+          <button
+            key={l.id}
+            className={`filter-chip ${filterLabel === l.id ? "active" : ""}`}
+            onClick={() => setFilterLabel(filterLabel === l.id ? null : l.id)}
+          >
+            #{l.title}
+          </button>
+        ))}
+      </div>
+
+      {/* Search */}
       <div className="search-bar">
         <input
           type="text"
@@ -113,12 +145,6 @@ export function TaskList({ onSelectTask, onToast }: Props) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <button
-          className={`filter-btn ${hideScheduled ? "active" : ""}`}
-          onClick={() => setHideScheduled(!hideScheduled)}
-        >
-          {hideScheduled ? "Unscheduled only" : "All"}
-        </button>
       </div>
 
       {loading && <div className="loading">Loading tasks…</div>}
@@ -128,33 +154,54 @@ export function TaskList({ onSelectTask, onToast }: Props) {
         <div className="task-list">
           {filtered.length === 0 && (
             <div className="empty-state">
-              {query ? "No matching tasks" : "No tasks found. Try syncing."}
+              {query || filterLabel !== null ? "No matching tasks" : "No open tasks."}
             </div>
           )}
-          {filtered.map((task) => (
-            <div
-              key={task.id}
-              className={`task-item ${task.scheduled ? "scheduled" : ""}`}
-              onClick={() => onSelectTask(task)}
-            >
-              <div className="task-content">
-                <div className="task-title">
-                  <span className={`task-source ${task.source}`}>
-                    {task.source === "vikunja" ? "V" : "G"}
-                  </span>
-                  {task.title}
-                  {task.scheduled && <span className="check-icon"> ✓</span>}
+          {GROUP_ORDER.map((group) => {
+            const list = groups.get(group);
+            if (!list || list.length === 0) return null;
+            return (
+              <div key={group} className="task-group">
+                <div className={`section-label ${group === "Overdue" ? "overdue-label" : ""}`}>
+                  {group} ({list.length})
                 </div>
-                <div className="task-meta">
-                  {task.project_ref?.replace("vikunja:project:", "#").replace("repo:", "")}
-                  {task.priority != null && task.priority > 0 && ` · P${task.priority}`}
-                  {task.freshness !== "fresh" && (
-                    <span className={`freshness-text ${task.freshness}`}> · {task.freshness}</span>
-                  )}
-                </div>
+                {list.map((task) => (
+                  <div
+                    key={task.id}
+                    className={`task-item ${task.scheduled ? "scheduled" : ""}`}
+                  >
+                    <button
+                      className="task-check"
+                      onClick={() => quickComplete(task)}
+                      title="Complete"
+                    >
+                      {completedLocal.has(task.ref) ? "✓" : ""}
+                    </button>
+                    <div className="task-content" onClick={() => onSelectTask(task)}>
+                      <div className="task-title">
+                        {task.title}
+                        {task.scheduled && <span className="check-icon"> ✓</span>}
+                      </div>
+                      <div className="task-meta">
+                        {task.due_date && !task.due_date.startsWith("0001-") && (
+                          <span>
+                            {new Date(task.due_date).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                            })}{" "}
+                          </span>
+                        )}
+                        {task.priority != null && task.priority > 0 && `P${task.priority} `}
+                        {(task.labels ?? []).map((l) => (
+                          <span key={l.id} className="label-chip static">#{l.title}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

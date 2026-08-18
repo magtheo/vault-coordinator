@@ -59,6 +59,7 @@ async def create_task(
     priority: int | None = None,
     due_date: str | None = None,
     description: str | None = None,
+    label_ids: list[int] | None = None,
 ) -> dict:
     """Create a task in Vikunja. Returns the created task from authoritative API."""
     payload: dict = {"title": title, "project_id": project_id}
@@ -76,7 +77,57 @@ async def create_task(
             json=payload,
         )
         resp.raise_for_status()
+        task = resp.json()
+
+        # Vikunja ignores label_ids on create — labels attach via own endpoint
+        for label_id in label_ids or []:
+            resp = await client.put(
+                f"{vikunja_url}/tasks/{task['id']}/labels",
+                headers={"Authorization": f"Bearer {vikunja_token}"},
+                json={"label_id": label_id},
+            )
+            resp.raise_for_status()
+
+        if label_ids:
+            resp = await client.get(
+                f"{vikunja_url}/tasks/{task['id']}",
+                headers={"Authorization": f"Bearer {vikunja_token}"},
+            )
+            resp.raise_for_status()
+            return resp.json()
+        return task
+
+
+async def attach_label(
+    vikunja_url: str,
+    vikunja_token: str,
+    task_id: int,
+    label_id: int,
+) -> dict:
+    """Attach a label to a task. Returns the label."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            f"{vikunja_url}/tasks/{task_id}/labels",
+            headers={"Authorization": f"Bearer {vikunja_token}"},
+            json={"label_id": label_id},
+        )
+        resp.raise_for_status()
         return resp.json()
+
+
+async def detach_label(
+    vikunja_url: str,
+    vikunja_token: str,
+    task_id: int,
+    label_id: int,
+) -> None:
+    """Remove a label from a task."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.delete(
+            f"{vikunja_url}/tasks/{task_id}/labels/{label_id}",
+            headers={"Authorization": f"Bearer {vikunja_token}"},
+        )
+        resp.raise_for_status()
 
 
 async def update_task(

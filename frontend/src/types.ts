@@ -19,6 +19,11 @@ export interface Provenance {
   dirty: boolean | null;
 }
 
+export interface Label {
+  id: number;
+  title: string;
+}
+
 export interface Task {
   id: string;
   ref: string;
@@ -32,6 +37,7 @@ export interface Task {
   capabilities: Capabilities;
   priority: number | null;
   due_date: string | null;
+  labels?: Label[] | null;
   is_favorite: boolean | null;
   description: string | null;
   provenance: Provenance | null;
@@ -70,6 +76,24 @@ export interface TodayEvent {
 export interface TodayResponse {
   events: TodayEvent[];
   date: string;
+}
+
+export interface RangeResponse {
+  from: string;
+  to: string;
+  events: TodayEvent[];
+}
+
+export interface RegistryProject {
+  name: string;
+  slug: string;
+  kind: string;   // "vault" | "code"
+  host?: string;
+  path?: string;
+}
+
+export interface RegistryResponse {
+  projects: RegistryProject[];
 }
 
 export interface SyncResponse {
@@ -133,6 +157,7 @@ export interface Machine {
 
 export interface MachinesResponse {
   machines: Machine[];
+  age_seconds?: number;
 }
 
 // ─── Projects overview (slice 2) ───────────────────────────────────────
@@ -158,6 +183,7 @@ export interface ProjectJob {
   state: string;
   since: string | null;
   command: string;
+  exit_code?: number | null;
 }
 
 export interface ProjectOverview {
@@ -233,4 +259,4 @@ export interface JobLogResponse {
 
 // ─── View state ────────────────────────────────────────────────────────
 
-export type View = "today" | "tasks" | "projects" | "machines";
+export type View = "today" | "tasks" | "calendar" | "projects";

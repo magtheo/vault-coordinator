@@ -99,7 +99,7 @@ export function ScheduleSheet({ task, onClose, onScheduled }: Props) {
     if (!startStr) return;
     setSubmitting(true);
     try {
-      const resp = await scheduleTask(task.ref, startStr, duration);
+      await scheduleTask(task.ref, startStr, duration);
       onScheduled(`✅ Scheduled: ${formatRange()}`, true);
       onClose();
     } catch (e) {

@@ -692,3 +692,310 @@ html, body {
 .log-actions { display: flex; gap: 8px; margin: 8px 0; }
 .log-pre { font-size: 0.75rem; line-height: 1.35; background: #1e1e1e; color: #ddd; padding: 10px; border-radius: 8px; overflow-x: auto; max-height: 55vh; overflow-y: auto; white-space: pre-wrap; }
 .log-sheet { max-height: 80vh; }
+
+/* ── A1: top bar + fleet chip ──────────────────────────────────────── */
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px 0;
+}
+
+.top-bar-brand {
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.fleet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.fleet-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.fleet-chip.ok .fleet-dot { background: var(--success); }
+.fleet-chip.warn { color: var(--danger); }
+.fleet-chip.warn .fleet-dot { background: var(--danger); }
+
+.machines-sheet {
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+/* ── A1: capture box with #tag autocomplete ────────────────────────── */
+
+.capture-box {
+  position: relative;
+  margin: 8px 16px 4px;
+}
+
+.capture-row {
+  display: flex;
+  gap: 8px;
+}
+
+.capture-input {
+  flex: 1;
+}
+
+.autocomplete {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 52px;
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 4px;
+  z-index: 40;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.autocomplete-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.autocomplete-item.active {
+  background: var(--accent);
+  color: #111;
+}
+
+.capture-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ── A1: label chips + filter row ──────────────────────────────────── */
+
+.label-chip {
+  display: inline-block;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 0.72rem;
+  margin-right: 4px;
+  cursor: pointer;
+}
+
+.label-chip.static {
+  cursor: default;
+  color: var(--text-dim);
+}
+
+.label-chip.selected {
+  background: var(--accent);
+  color: #111;
+  border-color: var(--accent);
+}
+
+.label-chip.removable:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.label-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.label-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--bg-card);
+  border-radius: 8px;
+}
+
+.detail-labels .section-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.filter-chip-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 6px 16px;
+  scrollbar-width: none;
+}
+
+.filter-chip-row::-webkit-scrollbar { display: none; }
+
+.filter-chip {
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  background: var(--accent);
+  color: #111;
+  border-color: var(--accent);
+}
+
+/* ── A1: task quick-complete + grouping ────────────────────────────── */
+
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.task-check {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin-top: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: none;
+  color: var(--success);
+  font-size: 0.9rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.task-check:hover {
+  border-color: var(--success);
+}
+
+.task-group {
+  margin-bottom: 12px;
+}
+
+.overdue-label {
+  color: var(--danger);
+}
+
+.overdue-chip {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--danger);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 0.7rem;
+}
+
+.task-count {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  align-self: center;
+}
+
+/* ── A1: now/next card + calendar grid ─────────────────────────────── */
+
+.next-event-card {
+  background: linear-gradient(135deg, rgba(124, 158, 255, 0.12), rgba(124, 158, 255, 0.04));
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.cal-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cal-month-label {
+  min-width: 140px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  padding: 0 12px;
+}
+
+.cal-dow {
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  padding: 6px 0 2px;
+  text-transform: uppercase;
+}
+
+.cal-cell {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cal-cell.empty {
+  background: none;
+}
+
+.cal-cell.today {
+  border-color: var(--accent);
+}
+
+.cal-cell.selected {
+  background: var(--accent);
+  color: #111;
+}
+
+.cal-dot {
+  position: absolute;
+  bottom: 4px;
+  right: 5px;
+  font-size: 0.6rem;
+  color: var(--accent);
+}
+
+.cal-cell.selected .cal-dot {
+  color: #111;
+}
+
+.btn-xs {
+  padding: 1px 8px;
+  font-size: 0.7rem;
+}

@@ -27,8 +27,10 @@ from src.models import (
     record_mutation,
 )
 from src.adapters.vikunja import (
+    attach_label,
     complete_task,
     create_task,
+    detach_label,
     fetch_projects,
     reopen_task,
     update_task,
@@ -77,6 +79,11 @@ def _enrich_task(entity: dict, freshness_map: dict[str, str], scheduled_aliases:
         "capabilities": get_capabilities(entity_type),
         "priority": raw.get("priority") if entity_type == "vikunja_task" else None,
         "due_date": raw.get("due_date") if entity_type == "vikunja_task" else None,
+        "labels": [
+            {"id": l["id"], "title": l["title"]}
+            for l in (raw.get("labels") or [])
+            if isinstance(l, dict) and "id" in l and "title" in l
+        ] if entity_type == "vikunja_task" else None,
         "is_favorite": raw.get("is_favorite") if entity_type == "vikunja_task" else None,
         "description": raw.get("description") or raw.get("description") or None,
         "provenance": {
@@ -171,6 +178,7 @@ class CreateTaskRequest(BaseModel):
     priority: int | None = None
     due_date: str | None = None
     description: str | None = None
+    label_ids: list[int] | None = Field(default=None, description="Vikunja label ids")
     request_id: str | None = None
 
 
@@ -195,6 +203,7 @@ async def quick_capture(req: CreateTaskRequest, request: Request, db=Depends(get
             priority=req.priority,
             due_date=req.due_date,
             description=req.description,
+            label_ids=req.label_ids,
         )
         # Cache the new entity
         alias = f"vikunja:local:task:{result['id']}"
@@ -416,3 +425,76 @@ async def list_projects(request: Request, db=Depends(get_db)):
         })
 
     return {"projects": projects}
+
+
+# ─── PUT/DELETE /tasks/{alias}/labels/{label_id} ──────────────────────
+
+
+async def _fetch_and_cache_task(db, cfg, alias: str, task_id: int):
+    """Re-fetch a task from Vikunja and refresh the local projection."""
+    import httpx
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{cfg.vikunja.url}/tasks/{task_id}",
+            headers={"Authorization": f"Bearer {cfg.vikunja.token}"},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+    from src.models import upsert_entity
+
+    upsert_entity(
+        db,
+        entity_type="vikunja_task",
+        external_alias=alias,
+        display_name=result["title"],
+        source_system="vikunja",
+        raw_data=result,
+    )
+    return result
+
+
+@router.put("/tasks/{alias}/labels/{label_id}")
+async def attach_label_endpoint(alias: str, label_id: int, request: Request, db=Depends(get_db)):
+    """Attach a Vikunja label to a task."""
+    entity = get_entity_by_alias(db, alias)
+    if not entity:
+        raise HTTPException(status_code=404, detail=f"Task '{alias}' not found")
+    try:
+        enforce(entity["entity_type"], "edit")
+    except CapabilityError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    raw = json.loads(entity["raw_data"]) if entity.get("raw_data") else {}
+    task_id = raw.get("id")
+    cfg = get_config()
+
+    try:
+        await attach_label(cfg.vikunja.url, cfg.vikunja.token, task_id, label_id)
+        result = await _fetch_and_cache_task(db, cfg, alias, task_id)
+        return {"task_alias": alias, "labels": result.get("labels") or []}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Vikunja error: {e}")
+
+
+@router.delete("/tasks/{alias}/labels/{label_id}")
+async def detach_label_endpoint(alias: str, label_id: int, request: Request, db=Depends(get_db)):
+    """Remove a Vikunja label from a task."""
+    entity = get_entity_by_alias(db, alias)
+    if not entity:
+        raise HTTPException(status_code=404, detail=f"Task '{alias}' not found")
+    try:
+        enforce(entity["entity_type"], "edit")
+    except CapabilityError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    raw = json.loads(entity["raw_data"]) if entity.get("raw_data") else {}
+    task_id = raw.get("id")
+    cfg = get_config()
+
+    try:
+        await detach_label(cfg.vikunja.url, cfg.vikunja.token, task_id, label_id)
+        result = await _fetch_and_cache_task(db, cfg, alias, task_id)
+        return {"task_alias": alias, "labels": result.get("labels") or []}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Vikunja error: {e}")
