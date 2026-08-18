@@ -14,6 +14,7 @@ from src.config import load_config
 from src.database import init_database
 from src.routers import health, machines, projects_overview, schedule, sync, tasks
 from src.routers import ai as ai_router
+from src.routers import vault as vault_router
 
 
 @asynccontextmanager
@@ -111,6 +112,7 @@ app.include_router(schedule.router, prefix="/api", tags=["schedule"])
 app.include_router(sync.router, prefix="/api", tags=["sync"])
 app.include_router(machines.router, prefix="/api", tags=["machines"])
 app.include_router(projects_overview.router, prefix="/api", tags=["projects"])
+app.include_router(vault_router.router, prefix="/api", tags=["vault"])
 app.include_router(ai_router.router, prefix="/api", tags=["ai"])
 
 # ── Serve PWA static files (must be after API routes) ──────────────────

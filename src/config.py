@@ -63,6 +63,12 @@ class IcsSubscription(BaseModel):
 
 
 
+class VaultConfig(BaseModel):
+    root: str = "~/Documents/Vault"
+    git_name: str = "vault-coordinator"
+    git_email: str = "vault-coordinator@localhost"
+
+
 class AIConfig(BaseModel):
     base_url: str = "https://api.z.ai/api/coding/paas/v4"
     model: str = "glm-5.1"
@@ -79,6 +85,7 @@ class AppConfig(BaseModel):
     machines: list[MachineConfig] = []
     machines_poll_seconds: int = 30
     ics_subscriptions: list[IcsSubscription] = []
+    vault: VaultConfig = VaultConfig()
     ai: AIConfig = AIConfig()
     auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300

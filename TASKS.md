@@ -47,3 +47,8 @@
 - [x] V-044 security: SPA fallback path traversal fixed (arbitrary file read incl. config.yaml unauthenticated); token compare now constant-time
 - [x] V-045 ICS subscription sync worker: Google Calendar secret-ICS feeds → Radicale replicas (hourly, content-hash fast path, DTSTAMP-normalized per-UID diff, confirm-debounce vs Google export non-determinism, deletion mirror + mass-delete guard, ntfy failure alerts, drift heal every 24 runs); fixed ntfy credentials missing in config.yaml (reminders were 401ing silently)
 
+- [x] W-001 A0 vault hygiene: baseline commit, scratchpad.md stub + README convention (two-writer discipline documented)
+- [x] W-002 A0 vault adapter (src/adapters/vault.py): slugify w/ overrides (Hermes Dual-Bot→hermes), project scan, scratchpad read/append w/ scoped git commits
+- [x] W-003 A0 vault config section (VaultConfig: root, git identity)
+- [x] W-004 A0 endpoints: GET/POST /api/scratchpad, GET /api/projects/registry (vault ∪ projects.toml, vault wins, code dupes collapse), GET /api/labels, POST /api/labels/seed (idempotent)
+- [x] W-005 A0 acceptance: prepend order verified, 3 scoped commits + clean tree, registry 8 vault + 3 code (11 unique), 15 labels seeded + idempotent re-seed, 401 without token
