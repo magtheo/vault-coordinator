@@ -30,24 +30,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png}"],
-        runtimeCaching: [
-          {
-            urlPattern: /^\/api\/tasks/,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "tasks-cache",
-              expiration: { maxAgeSeconds: 60 },
-            },
-          },
-          {
-            urlPattern: /^\/api\/schedule\/today/,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "today-cache",
-              expiration: { maxAgeSeconds: 30 },
-            },
-          },
-        ],
+        cleanupOutdatedCaches: true,
       },
     }),
   ],

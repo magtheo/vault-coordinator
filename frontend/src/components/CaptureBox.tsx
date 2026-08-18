@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Label } from "../types";
+import type { Label, Task, TasksResponse } from "../types";
 import { getLabels, createTask } from "../api";
 
 interface Props {
@@ -83,10 +83,59 @@ export function CaptureBox({ onToast, defaultLabelIds = [] }: Props) {
 
     setBusy(true);
     try {
-      await createTask({
+      const resp = await createTask({
         title: finalTitle,
         label_ids: ids.size ? [...ids] : undefined,
       });
+
+      // Insert the created task into the ["tasks"] cache directly from
+      // the create response — appearance is instant and never depends on
+      // a refetch racing the service worker. Invalidation below reconciles.
+      const raw = resp.task;
+      if (raw && typeof (raw as Record<string, unknown>).id === "number") {
+        const t = raw as Record<string, unknown>;
+        const alias = `vikunja:local:task:${t.id}`;
+        const enriched: Task = {
+          id: alias,
+          ref: alias,
+          kind: "vikunja_task",
+          title: String(t.title ?? finalTitle),
+          source: "vikunja",
+          source_status: "open",
+          project_ref: null,
+          freshness: "fresh",
+          scheduled: false,
+          capabilities: {
+            edit: true,
+            complete: true,
+            reopen: true,
+            schedule: true,
+            set_deadline: true,
+            set_priority: true,
+            set_project: true,
+            open_source: false,
+          },
+          priority: (t.priority as number) ?? null,
+          due_date: (t.due_date as string) ?? null,
+          labels: Array.isArray(t.labels)
+            ? (t.labels as { id: number; title: string }[]).map((l) => ({
+                id: l.id,
+                title: l.title,
+              }))
+            : null,
+          is_favorite: null,
+          description: null,
+          provenance: null,
+          last_synced: new Date().toISOString(),
+          raw: t,
+        };
+        queryClient.setQueryData<TasksResponse>(["tasks"], (old) => {
+          if (!old) return old;
+          if (old.tasks.some((x) => x.ref === alias)) return old;
+          return { ...old, tasks: [enriched, ...old.tasks] };
+        });
+      }
+
       const last = [...ids];
       if (last.length) localStorage.setItem(LAST_LABELS_KEY, JSON.stringify(last));
       onToast("Task created", true);
