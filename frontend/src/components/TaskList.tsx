@@ -63,7 +63,11 @@ export function TaskList({ onSelectTask, onToast }: Props) {
     );
   }, [tasks, labelUsage, queryClient]);
 
-  let filtered = tasks.filter((t) => t.source_status !== "done");
+  // Keep rows in the undo grace window even if a refetch says done —
+  // the banner/check-circle owns them until the grace expires.
+  let filtered = tasks.filter(
+    (t) => t.source_status !== "done" || isChecked(t.ref),
+  );
 
   if (query) {
     const q = query.toLowerCase();

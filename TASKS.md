@@ -59,5 +59,6 @@
 - [x] W-011 A1 TaskList: Vikunja-only, grouped (Overdue/Today/This week/Later/No date), filter chips by label usage, quick complete; TaskDetail label editor; Today strict (Now/Next card, schedule, due tasks); CalendarView month grid + day agenda; ProjectsView tagged-tasks section
 - [x] W-012 A1 hygiene: tsc --noEmit enforced in build (fixed 12 latent type errors incl. pre-existing); acceptance: labels 15, range 3 events Aug, capture+attach+detach+complete round-trip, tailnet PWA 200
 - [x] W-013 A1.1 complete-with-undo: 5s grace (row stays, dimmed/strikethrough), floating Undo pill w/ countdown above tab bar, tap checked circle to undo; complete fires immediately (never lost), undo = reopen; hook shared by Today + Tasks
-
 - [x] W-014 A1.2 fix captured tasks not appearing until refresh: capture now inserts the created task into the ["tasks"] cache directly from the POST response (instant, refetch-independent); removed SW runtimeCaching for /api/tasks + /api/schedule/today (stale-cache class of bugs; patterns were also dead-wrong vs full URLs)
+
+- [x] W-015 A1.3 hardening: undo hook stores completion promise (undo awaits it — no complete/reopen race); lists keep in-grace rows across refetch; TaskDetail resolves live entity from cache by ref; scratchpad POST/GET off the event loop (asyncio.to_thread for git), heading/body caps (200/10k), request_id idempotency (replay verified: 1 commit)

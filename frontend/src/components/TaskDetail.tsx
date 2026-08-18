@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Task, Project } from "../types";
-import { editTask, completeTask, reopenTask, getProjects, getLabels, attachLabel, detachLabel } from "../api";
+import { editTask, completeTask, reopenTask, getProjects, getLabels, attachLabel, detachLabel, getTasks } from "../api";
 import { ScheduleSheet } from "./ScheduleSheet";
 
 interface Props {
@@ -10,7 +10,20 @@ interface Props {
   onMutated: (msg: string, ok: boolean) => void;
 }
 
-export function TaskDetail({ task, onClose, onMutated }: Props) {
+export function TaskDetail({ task: initialTask, onClose, onMutated }: Props) {
+  // Resolve the live entity from the cache by ref — the snapshot prop is
+  // only a fallback, so label edits / completion reflect without reopening.
+  const liveQuery = useQuery({
+    queryKey: ["tasks"],
+    queryFn: () => getTasks(),
+    enabled: initialTask.kind === "vikunja_task",
+  });
+  const task = useMemo(
+    () =>
+      liveQuery.data?.tasks.find((t) => t.ref === initialTask.ref) ?? initialTask,
+    [initialTask, liveQuery.data],
+  );
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [editing, setEditing] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);

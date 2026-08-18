@@ -7,9 +7,12 @@ Front-door plan (machine repo, docs/design/vault-front-door.md):
 """
 from __future__ import annotations
 
+import asyncio
+import json
+
 import httpx
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from src.adapters.vault import (
     VaultError,
@@ -20,6 +23,7 @@ from src.adapters.vault import (
 )
 from src.adapters.machine_projects import load_machine_projects
 from src.config import get_config
+from src.database import get_db
 
 router = APIRouter()
 
@@ -31,27 +35,58 @@ LIFE_AREAS = ["career", "economy", "health", "personal"]
 
 class ScratchpadAppend(BaseModel):
     project: str | None = None   # slug; null → general scratchpad
-    heading: str = ""
-    body: str = ""
+    heading: str = Field(default="", max_length=200)
+    body: str = Field(default="", max_length=10_000)
+    request_id: str | None = None  # optional idempotency key
 
 
 @router.get("/scratchpad")
 async def get_scratchpad(project: str | None = None):
+    config = get_config()
     try:
-        return read_scratchpad(get_config(), project)
+        return await asyncio.to_thread(read_scratchpad, config, project)
     except VaultError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
 
 @router.post("/scratchpad")
-async def post_scratchpad(req: ScratchpadAppend, request: Request):
+async def post_scratchpad(req: ScratchpadAppend, request: Request, db=Depends(get_db)):
     if not req.body.strip() and not req.heading.strip():
         raise HTTPException(status_code=422, detail="heading or body required")
+
+    # Idempotent replay: same request_id returns the stored response
+    # (double-tap protection; pattern shared with /schedule).
+    if req.request_id:
+        row = db.execute(
+            "SELECT response FROM idempotency_keys WHERE request_id = ?",
+            (req.request_id,),
+        ).fetchone()
+        if row:
+            return json.loads(row["response"])
+
+    config = get_config()
     try:
-        result = append_scratchpad(get_config(), req.project, req.heading, req.body)
+        # git subprocesses must never block the event loop
+        result = await asyncio.to_thread(
+            append_scratchpad, config, req.project, req.heading, req.body
+        )
     except VaultError as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+    if req.request_id:
+        db.execute(
+            "INSERT INTO idempotency_keys (request_id, response, created_at) VALUES (?, ?, ?)",
+            (req.request_id, json.dumps(result), _now_iso()),
+        )
+        db.commit()
+
     return result
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ─── Project registry (vault folders ∪ projects.toml) ──────────────────

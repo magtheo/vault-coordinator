@@ -103,7 +103,7 @@ export function appendScratchpad(body: {
   heading: string;
   body: string;
 }): Promise<{ committed: boolean; commit_message: string }> {
-  return fetchJson(`${API}/scratchpad`, jsonBody("POST", body));
+  return fetchJson(`${API}/scratchpad`, jsonBody("POST", { request_id: uuid(), ...body }));
 }
 
 export function getProjects(): Promise<ProjectsResponse> {

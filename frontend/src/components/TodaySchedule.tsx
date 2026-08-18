@@ -49,10 +49,10 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
       new Date(e.end ?? e.start!).getTime() > nowMs,
   );
 
-  // Strictly due/overdue Vikunja tasks
+  // Strictly due/overdue Vikunja tasks (in-grace rows stay for undo)
   const dueTasks = (tasksQuery.data?.tasks ?? []).filter((t) => {
     if (t.kind !== "vikunja_task") return false;
-    if (t.source_status === "done") return false;
+    if (t.source_status === "done" && !isChecked(t.ref)) return false;
     if (!t.due_date || t.due_date.startsWith("0001-")) return false;
     return new Date(t.due_date).getTime() <= nowMs + 36e5 * 24; // due today or overdue
   });

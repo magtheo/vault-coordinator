@@ -8,13 +8,17 @@ const GRACE_MS = 5000;
 interface PendingEntry {
   task: Task;
   until: number;
+  /** Completes when the completion request settles; "failed" on rejection. */
+  completion: Promise<"failed" | void>;
 }
 
 /**
  * Complete-with-undo: fires the completion immediately (never lost),
- * keeps the row visible (checked/dimmed) for a grace period, exposes an
- * undo (reopen). After the grace the task lists refresh and the row
- * disappears. Tap the checked circle or the floating pill to undo.
+ * keeps the row visible (checked/dimmed) for a grace period — even if
+ * the list refetches to source_status=done mid-grace (list filters must
+ * keep rows for which isChecked(ref) is true) — and serializes undo
+ * behind the in-flight completion so reopen can never land before the
+ * complete it compensates.
  */
 export function useCompleteWithUndo(onToast: (msg: string, ok: boolean) => void) {
   const queryClient = useQueryClient();
@@ -54,33 +58,46 @@ export function useCompleteWithUndo(onToast: (msg: string, ok: boolean) => void)
 
   const complete = useCallback(
     (task: Task) => {
-      setPending((prev) => new Map(prev).set(task.ref, { task, until: Date.now() + GRACE_MS }));
+      const completion = completeTask(task.ref).then(
+        () => undefined,
+        (e) => {
+          setPending((prev) => {
+            const next = new Map(prev);
+            next.delete(task.ref);
+            return next;
+          });
+          onToast(e instanceof Error ? e.message : "Complete failed", false);
+          return "failed" as const;
+        },
+      );
+      setPending((prev) =>
+        new Map(prev).set(task.ref, { task, until: Date.now() + GRACE_MS, completion }),
+      );
       setNow(Date.now());
-      completeTask(task.ref).catch((e) => {
-        setPending((prev) => {
-          const next = new Map(prev);
-          next.delete(task.ref);
-          return next;
-        });
-        onToast(e instanceof Error ? e.message : "Complete failed", false);
-      });
     },
     [onToast],
   );
 
   const undo = useCallback(
-    (ref: string) => {
+    async (ref: string) => {
+      const entry = pendingRef.current.get(ref);
       setPending((prev) => {
         const next = new Map(prev);
         next.delete(ref);
         return next;
       });
-      reopenTask(ref)
-        .then(() => onToast("Undone", true))
-        .catch((e) => {
-          onToast(e instanceof Error ? e.message : "Undo failed", false);
-          queryClient.invalidateQueries({ queryKey: ["tasks"] });
-        });
+      if (!entry) return;
+      // Wait for the completion to settle: if it never landed the task
+      // is still open and reopen would race (or be a no-op).
+      const outcome = await entry.completion;
+      if (outcome === "failed") return;
+      try {
+        await reopenTask(ref);
+        onToast("Undone", true);
+      } catch (e) {
+        onToast(e instanceof Error ? e.message : "Undo failed", false);
+        queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      }
     },
     [onToast, queryClient],
   );
