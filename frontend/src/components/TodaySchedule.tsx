@@ -1,8 +1,8 @@
-import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Task } from "../types";
-import { getToday, getTasks, completeTask } from "../api";
+import { getToday, getTasks } from "../api";
 import { CaptureBox, lastUsedLabelIds } from "./CaptureBox";
+import { useCompleteWithUndo, UndoBanner } from "./CompleteWithUndo";
 
 interface Props {
   onSelectTask: (task: Task) => void;
@@ -11,7 +11,7 @@ interface Props {
 
 export function TodaySchedule({ onSelectTask, onToast }: Props) {
   const queryClient = useQueryClient();
-  const [completedLocal, setCompletedLocal] = useState<Set<string>>(new Set());
+  const { toggle, isChecked, latest, now, undo } = useCompleteWithUndo(onToast);
   const defaults = lastUsedLabelIds();
 
   const todayQuery = useQuery({ queryKey: ["today"], queryFn: getToday });
@@ -53,27 +53,9 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
   const dueTasks = (tasksQuery.data?.tasks ?? []).filter((t) => {
     if (t.kind !== "vikunja_task") return false;
     if (t.source_status === "done") return false;
-    if (completedLocal.has(t.ref)) return false;
     if (!t.due_date || t.due_date.startsWith("0001-")) return false;
     return new Date(t.due_date).getTime() <= nowMs + 36e5 * 24; // due today or overdue
   });
-
-  async function quickComplete(task: Task) {
-    // Optimistic
-    setCompletedLocal((prev) => new Set(prev).add(task.ref));
-    try {
-      await completeTask(task.ref);
-      onToast("Completed", true);
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    } catch (e) {
-      setCompletedLocal((prev) => {
-        const next = new Set(prev);
-        next.delete(task.ref);
-        return next;
-      });
-      onToast(e instanceof Error ? e.message : "Failed", false);
-    }
-  }
 
   function formatTime(iso: string | null): string {
     if (!iso) return "";
@@ -147,14 +129,15 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
             {dueTasks.map((task) => {
               const overdue =
                 task.due_date && new Date(task.due_date).getTime() < nowMs - 36e5 * 24;
+              const checked = isChecked(task.ref);
               return (
-                <div key={task.id} className="task-item">
+                <div key={task.id} className={`task-item ${checked ? "completing" : ""}`}>
                   <button
                     className="task-check"
-                    onClick={() => quickComplete(task)}
-                    title="Complete"
+                    onClick={() => toggle(task)}
+                    title={checked ? "Undo" : "Complete"}
                   >
-                    {completedLocal.has(task.ref) ? "✓" : ""}
+                    {checked ? "✓" : ""}
                   </button>
                   <div className="task-content" onClick={() => onSelectTask(task)}>
                     <div className="task-title">{task.title}</div>
@@ -180,6 +163,8 @@ export function TodaySchedule({ onSelectTask, onToast }: Props) {
           </div>
         </>
       )}
+
+      <UndoBanner entry={latest} now={now} onUndo={() => latest && undo(latest.task.ref)} />
     </div>
   );
 }

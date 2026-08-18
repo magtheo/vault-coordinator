@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Task, Label } from "../types";
-import { getTasks, completeTask } from "../api";
+import { getTasks } from "../api";
 import { CaptureBox, lastUsedLabelIds } from "./CaptureBox";
+import { useCompleteWithUndo, UndoBanner } from "./CompleteWithUndo";
 
 interface Props {
   onSelectTask: (task: Task) => void;
@@ -26,7 +27,7 @@ export function TaskList({ onSelectTask, onToast }: Props) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [filterLabel, setFilterLabel] = useState<number | null>(null);
-  const [completedLocal, setCompletedLocal] = useState<Set<string>>(new Set());
+  const { toggle, isChecked, latest, now: tickNow, undo } = useCompleteWithUndo(onToast);
 
   const { data, error: qError, isPending } = useQuery({
     queryKey: ["tasks"],
@@ -62,10 +63,7 @@ export function TaskList({ onSelectTask, onToast }: Props) {
     );
   }, [tasks, labelUsage, queryClient]);
 
-  const now = Date.now();
-  let filtered = tasks.filter(
-    (t) => t.source_status !== "done" && !completedLocal.has(t.ref),
-  );
+  let filtered = tasks.filter((t) => t.source_status !== "done");
 
   if (query) {
     const q = query.toLowerCase();
@@ -75,6 +73,7 @@ export function TaskList({ onSelectTask, onToast }: Props) {
     filtered = filtered.filter((t) => (t.labels ?? []).some((l) => l.id === filterLabel));
   }
 
+  const now = Date.now();
   const groups = useMemo(() => {
     const g = new Map<string, Task[]>();
     for (const t of filtered) {
@@ -91,23 +90,8 @@ export function TaskList({ onSelectTask, onToast }: Props) {
       });
     }
     return g;
-  }, [filtered, now]);
-
-  async function quickComplete(task: Task) {
-    setCompletedLocal((prev) => new Set(prev).add(task.ref));
-    try {
-      await completeTask(task.ref);
-      onToast("Completed", true);
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    } catch (e) {
-      setCompletedLocal((prev) => {
-        const next = new Set(prev);
-        next.delete(task.ref);
-        return next;
-      });
-      onToast(e instanceof Error ? e.message : "Failed", false);
-    }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered]);
 
   return (
     <div>
@@ -165,17 +149,19 @@ export function TaskList({ onSelectTask, onToast }: Props) {
                 <div className={`section-label ${group === "Overdue" ? "overdue-label" : ""}`}>
                   {group} ({list.length})
                 </div>
-                {list.map((task) => (
+                {list.map((task) => {
+                  const checked = isChecked(task.ref);
+                  return (
                   <div
                     key={task.id}
-                    className={`task-item ${task.scheduled ? "scheduled" : ""}`}
+                    className={`task-item ${task.scheduled ? "scheduled" : ""} ${checked ? "completing" : ""}`}
                   >
                     <button
                       className="task-check"
-                      onClick={() => quickComplete(task)}
-                      title="Complete"
+                      onClick={() => toggle(task)}
+                      title={checked ? "Undo" : "Complete"}
                     >
-                      {completedLocal.has(task.ref) ? "✓" : ""}
+                      {checked ? "✓" : ""}
                     </button>
                     <div className="task-content" onClick={() => onSelectTask(task)}>
                       <div className="task-title">
@@ -198,12 +184,15 @@ export function TaskList({ onSelectTask, onToast }: Props) {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })}
         </div>
       )}
+
+      <UndoBanner entry={latest} now={tickNow} onUndo={() => latest && undo(latest.task.ref)} />
     </div>
   );
 }

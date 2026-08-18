@@ -59,3 +59,4 @@
 - [x] W-010 A1 CaptureBox: #tag autocomplete (arrow/tab/enter keys), chips, inline #tag parsing, last-used default
 - [x] W-011 A1 TaskList: Vikunja-only, grouped (Overdue/Today/This week/Later/No date), filter chips by label usage, quick complete; TaskDetail label editor; Today strict (Now/Next card, schedule, due tasks); CalendarView month grid + day agenda; ProjectsView tagged-tasks section
 - [x] W-012 A1 hygiene: tsc --noEmit enforced in build (fixed 12 latent type errors incl. pre-existing); acceptance: labels 15, range 3 events Aug, capture+attach+detach+complete round-trip, tailnet PWA 200
+- [x] W-013 A1.1 complete-with-undo: 5s grace (row stays, dimmed/strikethrough), floating Undo pill w/ countdown above tab bar, tap checked circle to undo; complete fires immediately (never lost), undo = reopen; hook shared by Today + Tasks
