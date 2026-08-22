@@ -13,6 +13,7 @@ from pathlib import Path
 from src.config import load_config
 from src.database import init_database
 from src.routers import health, machines, projects_overview, schedule, sync, tasks
+from src.routers import v1 as v1_router
 from src.routers import ai as ai_router
 from src.routers import vault as vault_router
 
@@ -97,7 +98,7 @@ app.add_middleware(
 async def token_auth(request: Request, call_next):
     token = getattr(app.state, "config", None)
     token = getattr(token, "auth_token", "") if token else ""
-    if token and request.url.path.startswith("/api"):
+    if token and (request.url.path.startswith("/api") or request.url.path.startswith("/v1")):
         auth = request.headers.get("Authorization", "")
         if not hmac.compare_digest(auth, f"Bearer {token}"):
             from fastapi.responses import JSONResponse
@@ -107,6 +108,7 @@ async def token_auth(request: Request, call_next):
 
 
 app.include_router(health.router, prefix="/api", tags=["health"])
+app.include_router(v1_router.router, prefix="/v1", tags=["kompakt-v1"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
 app.include_router(schedule.router, prefix="/api", tags=["schedule"])
 app.include_router(sync.router, prefix="/api", tags=["sync"])
