@@ -14,6 +14,7 @@ from src.config import load_config
 from src.database import init_database
 from src.routers import health, machines, projects_overview, schedule, sync, tasks
 from src.routers import v1 as v1_router
+from src.routers import devices as devices_router
 from src.routers import ai as ai_router
 from src.routers import vault as vault_router
 
@@ -94,21 +95,63 @@ app.add_middleware(
 
 
 # ── Bearer-token auth (single-user; tailscale serve gates the network) ──
+# Phase 4 (T-005): dual principals — admin (shared config token, full
+# access) and device (per-device enrollment token, /v1 reads within its
+# capability set). Enrollment endpoints are public; see src/auth.py.
 @app.middleware("http")
 async def token_auth(request: Request, call_next):
-    token = getattr(app.state, "config", None)
-    token = getattr(token, "auth_token", "") if token else ""
-    if token and (request.url.path.startswith("/api") or request.url.path.startswith("/v1")):
-        auth = request.headers.get("Authorization", "")
-        if not hmac.compare_digest(auth, f"Bearer {token}"):
-            from fastapi.responses import JSONResponse
+    from src.auth import is_public_v1, lookup_device_by_token, set_principal, touch_last_seen
+    from fastapi.responses import JSONResponse
 
+    cfg = getattr(app.state, "config", None)
+    admin_token = getattr(cfg, "auth_token", "") if cfg else ""
+    path = request.url.path
+    is_api = path.startswith("/api")
+    is_v1 = path.startswith("/v1")
+    if (is_api or is_v1) and admin_token:
+        if is_v1 and is_public_v1(path):
+            return await call_next(request)  # enrollment flow, no credential
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        presented = auth[7:]
+        if hmac.compare_digest(presented, admin_token):
+            set_principal(request, {"type": "admin"})
+        else:
+            from src.database import get_connection
+
+            db = get_connection()
+            try:
+                device = lookup_device_by_token(db, presented)
+            finally:
+                db.close()
+            if device is None or device["status"] != "active":
+                detail = "device_revoked" if device is not None else "unauthorized"
+                return JSONResponse({"detail": detail}, status_code=401)
+            if is_api or path.startswith("/v1/admin"):
+                # Devices never touch the /api surface or device admin.
+                return JSONResponse({"detail": "forbidden"}, status_code=403)
+            import json as _json
+
+            set_principal(
+                request,
+                {
+                    "type": "device",
+                    "device_id": device["device_id"],
+                    "capabilities": _json.loads(device["capabilities"] or "[]"),
+                },
+            )
+            db = get_connection()
+            try:
+                touch_last_seen(db, device["device_id"])
+            finally:
+                db.close()
     return await call_next(request)
 
 
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(v1_router.router, prefix="/v1", tags=["kompakt-v1"])
+app.include_router(devices_router.router, prefix="/v1", tags=["kompakt-devices"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
 app.include_router(schedule.router, prefix="/api", tags=["schedule"])
 app.include_router(sync.router, prefix="/api", tags=["sync"])

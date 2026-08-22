@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from src.adapters.machine_projects import load_machine_projects
 from src.adapters.vault import list_vault_projects
 from src.adapters.vault import slugify as _vault_slugify
+from src.auth import require_capability
 from src.database import get_db
 from src.routers.projects_overview import _machines
 
@@ -46,6 +47,7 @@ FEATURES = {
     "notes": False,
     "inbox": True,
     "offline_capture": False,
+    "enrollment": True,
 }
 
 
@@ -131,10 +133,12 @@ def _wire_task(entity_row) -> dict | None:
 
 @router.get("/tasks")
 async def list_tasks(
+    request: Request,
     project_id: str | None = Query(default=None),
     area_id: str | None = Query(default=None),
     db=Depends(get_db),
 ):
+    require_capability(request, "task.read")
     rows = db.execute(
         "SELECT * FROM entities WHERE entity_type IN ('vikunja_task', 'repo_task')"
     ).fetchall()
@@ -153,6 +157,7 @@ async def list_tasks(
 
 @router.get("/projects")
 async def list_projects(request: Request, db=Depends(get_db)):
+    require_capability(request, "project.read")
     config = request.app.state.config
     projects: list[dict] = []
     for p in list_vault_projects(config):
@@ -240,6 +245,7 @@ def _list_vault_areas(config) -> list[dict]:
 
 @router.get("/areas")
 async def list_areas(request: Request):
+    require_capability(request, "project.read")
     return {"areas": _list_vault_areas(request.app.state.config)}
 
 
@@ -248,6 +254,7 @@ async def list_areas(request: Request):
 
 @router.get("/inbox")
 async def list_inbox(request: Request, db=Depends(get_db)):
+    require_capability(request, "inbox.read")
     now = _now_iso()
     items = []
     for i, a in enumerate(_attention_alerts(request, db)):
@@ -323,6 +330,7 @@ def _attention_alerts(request: Request, db) -> list[dict]:
 
 @router.get("/today")
 async def today(request: Request, db=Depends(get_db)):
+    require_capability(request, "today.read")
     from src.adapters.radicale import get_events_range
     from src.routers.schedule import _parse_raw_events
 
@@ -394,22 +402,26 @@ async def today(request: Request, db=Depends(get_db)):
 
 
 @router.get("/notes")
-async def list_notes(project_id: str | None = Query(default=None), area_id: str | None = Query(default=None)):
+async def list_notes(request: Request, project_id: str | None = Query(default=None), area_id: str | None = Query(default=None)):
+    require_capability(request, "note.read")
     return {"notes": []}
 
 
 @router.get("/agents")
-async def list_agents():
+async def list_agents(request: Request):
+    require_capability(request, "agent.read")
     return {"agents": []}
 
 
 @router.get("/agent-runs")
-async def list_agent_runs():
+async def list_agent_runs(request: Request):
+    require_capability(request, "agent.read")
     return {"agent_runs": []}
 
 
 @router.get("/chats")
-async def list_chats():
+async def list_chats(request: Request):
+    require_capability(request, "chat.read")
     return {"chats": []}
 
 

@@ -122,3 +122,22 @@ CREATE TABLE IF NOT EXISTS entity_tombstones (
     tombstoned_at TEXT NOT NULL DEFAULT (datetime('now')),
     reason TEXT                      -- 'deleted_upstream' | 'manual' | 'orphaned'
 );
+
+-- Devices — enrolled client identities (Kompakt Phase 4 / T-005).
+-- public_key: b64 raw Ed25519 public key (32 bytes).
+-- status: pending (enrolled, awaiting admin approval) | active | revoked.
+-- token_hash: sha256 hex of the issued device bearer token (NULL until
+--   first activation; cleared on revoke). The plaintext token exists
+--   only on the device and in the single activate response.
+CREATE TABLE IF NOT EXISTS devices (
+    device_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    public_key TEXT NOT NULL UNIQUE,
+    trust_class TEXT NOT NULL DEFAULT 'low',
+    status TEXT NOT NULL DEFAULT 'pending',
+    capabilities TEXT NOT NULL DEFAULT '[]',
+    token_hash TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    approved_at TEXT,
+    last_seen TEXT
+);
