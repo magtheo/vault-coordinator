@@ -152,7 +152,7 @@ async def list_tasks(
 
 
 @router.get("/projects")
-async def list_projects(request: Request):
+async def list_projects(request: Request, db=Depends(get_db)):
     config = request.app.state.config
     projects: list[dict] = []
     for p in list_vault_projects(config):
@@ -169,15 +169,42 @@ async def list_projects(request: Request):
             }
         )
     seen = {p["id"] for p in projects}
-    for p in load_machine_projects():
-        slug = _vault_slugify(p["name"])
+
+    # Machine projects. repo_snapshots.repo_id is the authoritative id space:
+    # repo tasks link to machine:project:<repo_id>, so these MUST be emitted
+    # with the raw repo_id (never slugified) or the join dangles. Names are
+    # enriched from projects.toml when it knows the repo.
+    registry = {_vault_slugify(p["name"]): p["name"] for p in load_machine_projects()}
+    rows = db.execute(
+        "SELECT repo_id, MAX(parsed_at) FROM repo_snapshots GROUP BY repo_id"
+    ).fetchall()
+    for repo_id, parsed_at in rows:
+        pid = f"machine:project:{repo_id}"
+        if pid in seen:
+            continue
+        projects.append(
+            {
+                "id": pid,
+                "name": registry.get(repo_id, repo_id),
+                "status": "active",
+                "current_goal": None,
+                "next_action": None,
+                "attention_count": 0,
+                "revision": 1,
+                "updated_at": _norm_ts(parsed_at) or _now_iso(),
+            }
+        )
+        seen.add(pid)
+
+    # Registry-only projects (e.g. hosted on another machine, no local tasks)
+    for slug, name in registry.items():
         pid = f"machine:project:{slug}"
         if pid in seen:
             continue
         projects.append(
             {
                 "id": pid,
-                "name": p["name"],
+                "name": name,
                 "status": "active",
                 "current_goal": None,
                 "next_action": None,
@@ -186,6 +213,7 @@ async def list_projects(request: Request):
                 "updated_at": _now_iso(),
             }
         )
+        seen.add(pid)
     projects.sort(key=lambda p: p["name"].lower())
     return {"projects": projects}
 
