@@ -22,7 +22,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.adapters.machine_projects import load_machine_projects
 from src.adapters.vault import list_vault_projects
@@ -53,6 +53,17 @@ FEATURES = {
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def require_feature(name: str) -> None:
+    """Protocol §9 fail-closed: a feature flagged off must not serve data.
+
+    The capabilities endpoint is the client's contract; serving a flagged-off
+    collection anyway is drift (caught by the Kompakt live smoke). Disabled
+    features answer 501 Not Implemented.
+    """
+    if not FEATURES.get(name, False):
+        raise HTTPException(status_code=501, detail=f"feature '{name}' is disabled")
 
 
 def _norm_ts(value: str | None) -> str | None:
@@ -403,24 +414,28 @@ async def today(request: Request, db=Depends(get_db)):
 
 @router.get("/notes")
 async def list_notes(request: Request, project_id: str | None = Query(default=None), area_id: str | None = Query(default=None)):
+    require_feature("notes")
     require_capability(request, "note.read")
     return {"notes": []}
 
 
 @router.get("/agents")
 async def list_agents(request: Request):
+    require_feature("agents")
     require_capability(request, "agent.read")
     return {"agents": []}
 
 
 @router.get("/agent-runs")
 async def list_agent_runs(request: Request):
+    require_feature("agent_runs")
     require_capability(request, "agent.read")
     return {"agent_runs": []}
 
 
 @router.get("/chats")
 async def list_chats(request: Request):
+    require_feature("chat")
     require_capability(request, "chat.read")
     return {"chats": []}
 
