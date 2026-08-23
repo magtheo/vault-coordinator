@@ -58,29 +58,41 @@ def warren_mock(requests: list[str]) -> httpx.MockTransport:
             body = json.loads(request.content)
             assert body["project"] == "prj_1", "dispatch must use `project` field"
             assert body["agent"] == "pi"
-            return httpx.Response(200, json={
-                "id": "run_new1", "state": "queued", "agent": "pi",
-                "project": "prj_1", "createdAt": "2026-08-23T10:00:00Z",
-            })
+            # v0.18 live shape (remote E2E Aug 2026): {"run": {...}} wrapper,
+            # camelCase fields, createdAt epoch millis.
+            return httpx.Response(200, json={"run": {
+                "id": "run_new1", "state": "queued", "agentName": "pi",
+                "projectId": "prj_1", "createdAt": 1787504094332,
+                "prompt": body["prompt"],
+            }})
         if p == "/runs":
             return httpx.Response(200, json={"runs": [
-                {"id": "run_a", "state": "succeeded", "agent": "pi", "project": "prj_1"},
-                {"id": "run_b", "state": "running", "agent": "pi", "project": "prj_2"},
-                {"id": "run_c", "state": "failed", "agent": "pi", "project": "prj_1"},
+                {"id": "run_a", "state": "succeeded", "agentName": "pi",
+                 "projectId": "prj_1", "createdAt": 1787504000000, "prompt": "fix the bug"},
+                {"id": "run_b", "state": "running", "agentName": "pi",
+                 "projectId": "prj_2", "createdAt": 1787504100000, "prompt": "other work"},
+                {"id": "run_c", "state": "failed", "agentName": "pi",
+                 "projectId": "prj_1", "createdAt": 1787504200000, "prompt": "third task"},
             ]})
         if p == "/runs/run_a":
-            return httpx.Response(200, json={
-                "id": "run_a", "state": "succeeded", "agent": "pi",
+            return httpx.Response(200, json={"run": {
+                "id": "run_a", "state": "succeeded", "agentName": "pi",
+                "projectId": "prj_1",
                 "branch": "burrow/run_a", "commitsAhead": 2,
                 "tokensInput": 100, "tokensOutput": 200,
-            })
+                "createdAt": 1787504000000, "endedAt": "2026-08-23T10:05:00.000Z",
+                "prompt": "fix the bug",
+            }})
         if p == "/runs/run_c":
-            return httpx.Response(200, json={
-                "id": "run_c", "state": "failed", "agent": "pi",
+            return httpx.Response(200, json={"run": {
+                "id": "run_c", "state": "failed", "agentName": "pi",
+                "projectId": "prj_1",
                 "failureReason": "finalize_failed",
                 "salvagePath": "/salvage/run_c.bundle", "commitsAhead": 1,
                 "tokensInput": 10, "tokensOutput": 20,
-            })
+                "createdAt": 1787504200000, "endedAt": "2026-08-23T10:15:00.000Z",
+                "prompt": "third task",
+            }})
         if p == "/runs/run_a/events":
             q = dict(pair.split("=") for pair in request.url.query.decode().split("&") if pair)
             lines = [
@@ -116,6 +128,9 @@ async def test_warren() -> None:
     check("dispatch returns queued RUN", ex.id == "run_new1" and ex.state is ExecutionState.QUEUED
           and ex.kind is ExecutionKind.RUN)
     check("dispatch hit POST /runs", any(r.startswith("POST /runs?") or r == "POST /runs" for r in reqs))
+    check("dispatch unwraps {run:…} + camelCase", ex.agent == "pi" and ex.project_ref == "prj_1")
+    check("epoch-ms createdAt → ISO Z", ex.created_at == "2026-08-23T16:54:54.332000Z")
+    check("title from prompt first line", ex.title == "do work")
 
     runs = await b.list_executions()
     check("list_executions returns all", len(runs) == 3)
