@@ -76,6 +76,17 @@ class AIConfig(BaseModel):
     summary_ttl_seconds: int = 600
 
 
+class ChatConfig(BaseModel):
+    """Kompakt chat assistant backend (Phase 7). Localhost Hermes API
+    server by default — OpenAI-compatible, no key required."""
+    base_url: str = "http://127.0.0.1:8642/v1"
+    model: str = "claude-sonnet-4"
+    api_key: str = ""
+    timeout_s: float = 90.0
+    max_history: int = 20
+    system_prompt: str = ""         # empty → src.llm.DEFAULT_SYSTEM_PROMPT
+
+
 class AppConfig(BaseModel):
     coordinator: CoordinatorConfig
     vikunja: VikunjaConfig
@@ -87,6 +98,7 @@ class AppConfig(BaseModel):
     ics_subscriptions: list[IcsSubscription] = []
     vault: VaultConfig = VaultConfig()
     ai: AIConfig = AIConfig()
+    chat: ChatConfig = ChatConfig()
     auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300
 
