@@ -14,6 +14,7 @@ from src.config import load_config
 from src.database import init_database
 from src.routers import health, machines, projects_overview, schedule, sync, tasks
 from src.routers import v1 as v1_router
+from src.routers import agents as agents_router
 from src.routers import devices as devices_router
 from src.routers import ai as ai_router
 from src.routers import vault as vault_router
@@ -62,6 +63,23 @@ async def lifespan(app: FastAPI):
     machines_cache.start()
     app.state.machines_cache = machines_cache
 
+    # Agent backends (Phase 8, V-052): registry + feature flags.
+    # Fail-closed default: agents.enabled=false leaves /v1/agents 501.
+    from src.agents.registry import build_registry
+    from src.routers import v1 as _v1
+
+    if getattr(config, "agents", None) and config.agents.enabled:
+        registry = build_registry(config.agents)
+        if registry.available():
+            app.state.agent_registry = registry
+            _v1.FEATURES["agents"] = True
+            _v1.FEATURES["agent_runs"] = True
+            logging.getLogger("vault").info(
+                "Agents surface enabled: backends=%s default=%s",
+                registry.available(),
+                registry.default_backend,
+            )
+
     logging.getLogger("vault").info(
         "Restored %d reminders, reconciled %d orphaned schedules, %d ICS sync jobs",
         restored,
@@ -73,6 +91,9 @@ async def lifespan(app: FastAPI):
 
     machines_cache.stop()
     shutdown_scheduler()
+    registry = getattr(app.state, "agent_registry", None)
+    if registry is not None:
+        await registry.aclose()
 
 
 app = FastAPI(
@@ -151,6 +172,7 @@ async def token_auth(request: Request, call_next):
 
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(v1_router.router, prefix="/v1", tags=["kompakt-v1"])
+app.include_router(agents_router.router, prefix="/v1", tags=["kompakt-agents"])
 app.include_router(devices_router.router, prefix="/v1", tags=["kompakt-devices"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
 app.include_router(schedule.router, prefix="/api", tags=["schedule"])

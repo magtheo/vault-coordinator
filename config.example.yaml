@@ -27,3 +27,22 @@ repos:
     path: "/home/user/Documents/repos/dev-server"
 
 sync_interval_seconds: 300
+
+# ── Agents (Phase 8, V-052) — backends must be localhost-only ──────────
+agents:
+  enabled: true                    # feature flag; false → /v1/agents* 501
+  default_backend: opencode        # used when dispatch omits backend
+  warren:
+    enabled: true
+    base_url: http://127.0.0.1:8660
+    token: ${WARREN_API_TOKEN}
+  opencode:
+    enabled: true
+    base_url: http://127.0.0.1:14096
+    model_id: glm-5.2              # provider catalog: glm-4.7|glm-5-turbo|glm-5.2 (glm-5.1 removed)
+    provider_id: zai-coding-plan
+    default_directory: /tmp        # fallback when project_ref unmapped
+  projects:                        # project_ref → per-backend binding
+    kodeverket:
+      warren_project_id: prj_xxx
+      opencode_directory: /home/user/Documents/repos/main

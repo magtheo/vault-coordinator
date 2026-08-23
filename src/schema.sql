@@ -170,3 +170,28 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_chat
     ON chat_messages (chat_id, created_at);
+
+-- ── Phase 8 (V-052): agent execution projections ─────────────────────
+-- Mirror of backend runs/sessions so history survives backend swaps and
+-- offline listing. Backend-native state remains authoritative while a
+-- backend is up; these rows are the durable coordinator-side record.
+CREATE TABLE IF NOT EXISTS agent_executions (
+    id                   TEXT PRIMARY KEY,   -- coordinator id (uuid)
+    backend              TEXT NOT NULL,      -- warren | opencode
+    backend_execution_id TEXT NOT NULL,      -- run_xxx | ses_xxx
+    kind                 TEXT NOT NULL CHECK (kind IN ('run', 'session')),
+    agent                TEXT NOT NULL,
+    project_ref          TEXT,               -- coordinator repo id
+    state                TEXT NOT NULL,
+    title                TEXT,
+    prompt               TEXT,
+    result_summary       TEXT,
+    tokens_in            INTEGER,
+    tokens_out           INTEGER,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_exec_backend_native
+    ON agent_executions (backend, backend_execution_id);
+CREATE INDEX IF NOT EXISTS idx_agent_exec_updated
+    ON agent_executions (updated_at DESC);
