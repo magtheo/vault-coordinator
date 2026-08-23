@@ -515,6 +515,34 @@ class ChatSendMessageRequest(BaseModel):
     text: str
 
 
+_DEFAULT_TITLE_TOKENS = ("new chat", "untitled", "")
+
+
+def _derive_title(text: str, limit: int = 48) -> str:
+    """Short single-line title from a user message (V-055)."""
+    first_line = text.strip().splitlines()[0] if text.strip() else ""
+    line = " ".join(first_line.split())
+    if len(line) > limit:
+        cut = line[:limit]
+        if " " in cut:
+            cut = cut.rsplit(" ", 1)[0]
+        line = cut.rstrip(" ,.:;!?-") + "…"
+    return line or "New chat"
+
+
+def _maybe_autotitle(db, chat_id: str, text: str) -> None:
+    """V-055: replace a placeholder title with one derived from the message.
+
+    Fires only while the thread still carries a default title, so explicit
+    names are never overwritten and later messages never rename the thread.
+    """
+    db.execute(
+        "UPDATE chat_threads SET title = ? WHERE id = ?"
+        " AND COALESCE(LOWER(TRIM(title)), '') IN (?, ?, ?)",
+        (_derive_title(text), chat_id, *_DEFAULT_TITLE_TOKENS),
+    )
+
+
 @router.post("/chats/{chat_id}/messages")
 async def send_chat_message(
     chat_id: str, req: ChatSendMessageRequest, request: Request, db=Depends(get_db)
@@ -547,6 +575,7 @@ async def send_chat_message(
     record_mutation(db, req.request_id, chat_id, "chat.send", req.model_dump())
 
     user_msg = _insert_message(db, chat_id, "user", req.text.strip())
+    _maybe_autotitle(db, chat_id, req.text)
 
     cfg = _chat_llm_config(request)
     history = db.execute(
