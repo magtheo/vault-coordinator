@@ -87,6 +87,47 @@ class ChatConfig(BaseModel):
     system_prompt: str = ""         # empty → src.llm.DEFAULT_SYSTEM_PROMPT
 
 
+class WarrenBackendConfig(BaseModel):
+    base_url: str = "http://127.0.0.1:8660"
+    token: str = ""                # ${WARREN_API_TOKEN} in config.yaml
+    enabled: bool = False
+
+
+class OpenCodeBackendConfig(BaseModel):
+    base_url: str = "http://127.0.0.1:14096"
+    enabled: bool = False
+    # zai-coding-plan catalog (Aug 2026): glm-4.7, glm-5-turbo, glm-5.2.
+    # glm-5.1 was REMOVED from the catalog — do not default to it.
+    provider_id: str = "zai-coding-plan"
+    model_id: str = "glm-5.2"
+
+
+class AgentsProjectMapping(BaseModel):
+    """Per-repo backend bindings (repo id → backend-native handles).
+
+    Warren keeps its own registry (prj_… from POST /projects {gitUrl});
+    OpenCode binds sessions to a checkout directory. The coordinator owns
+    this mapping (D025: general at the boundary, specific in adapters).
+    """
+
+    warren_project_id: str = ""    # prj_…; empty = not registered with warren
+    opencode_directory: str = ""   # absolute path; empty = not bound
+
+
+class AgentsConfig(BaseModel):
+    """Phase 8: agent dispatch surface (V-052).
+
+    enabled=False keeps /v1/agents + /v1/agent-runs fail-closed (501)
+    exactly as before — flipping the flag is the only deploy step.
+    """
+
+    enabled: bool = False
+    default_backend: str = "opencode"
+    warren: WarrenBackendConfig = WarrenBackendConfig()
+    opencode: OpenCodeBackendConfig = OpenCodeBackendConfig()
+    projects: dict[str, AgentsProjectMapping] = {}  # repo id → mapping
+
+
 class AppConfig(BaseModel):
     coordinator: CoordinatorConfig
     vikunja: VikunjaConfig
@@ -99,6 +140,7 @@ class AppConfig(BaseModel):
     vault: VaultConfig = VaultConfig()
     ai: AIConfig = AIConfig()
     chat: ChatConfig = ChatConfig()
+    agents: AgentsConfig = AgentsConfig()
     auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300
 

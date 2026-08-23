@@ -429,18 +429,8 @@ async def list_notes(request: Request, project_id: str | None = Query(default=No
     return {"notes": []}
 
 
-@router.get("/agents")
-async def list_agents(request: Request):
-    require_feature("agents")
-    require_capability(request, "agent.read")
-    return {"agents": []}
-
-
-@router.get("/agent-runs")
-async def list_agent_runs(request: Request):
-    require_feature("agent_runs")
-    require_capability(request, "agent.read")
-    return {"agent_runs": []}
+# NOTE: GET /agents and GET /agent-runs moved to src/routers/agents.py
+# (V-052) — the live implementations behind the agents feature flag.
 
 
 @router.get("/chats")
