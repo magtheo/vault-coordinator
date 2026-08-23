@@ -44,6 +44,11 @@ DEFAULT_DEVICE_CAPABILITIES = [
     "chat.read",
     "agent.read",
     "note.read",
+    # Phase 6 capture: interpret is pure compute; commit creates tasks
+    # (Vikunja) / notes (vault scratchpad) — low-risk writes (security.md
+    # action classes). Admins can still trim these per device at approval.
+    "capture.interpret",
+    "capture.commit",
 ]
 
 VALID_TRUST_CLASSES = {"low", "medium", "admin"}

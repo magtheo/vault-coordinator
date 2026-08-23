@@ -23,12 +23,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from src.adapters.machine_projects import load_machine_projects
+from src.adapters.vault import append_scratchpad as _vault_append_scratchpad
 from src.adapters.vault import list_vault_projects
 from src.adapters.vault import slugify as _vault_slugify
+from src.adapters.vikunja import create_task as _vikunja_create_task
 from src.auth import require_capability
+from src.capture import interpret as _interpret_text
 from src.database import get_db
+from src.models import complete_mutation, record_mutation, upsert_entity
 from src.routers.projects_overview import _machines
 
 router = APIRouter()
@@ -46,7 +51,7 @@ FEATURES = {
     "tasks": True,
     "notes": False,
     "inbox": True,
-    "offline_capture": False,
+    "offline_capture": True,  # Phase 6: interpret+commit live; queue-flush safe (request_id replay)
     "enrollment": True,
 }
 
@@ -443,9 +448,189 @@ async def list_chats(request: Request):
 # ─── Change stream (correctness mechanism; skeleton in v0.1) ───────────
 
 
+# ─── Capture pipeline (Phase 6: interpret → user confirms → commit) ────
+
+
+class InterpretRequest(BaseModel):
+    text: str
+
+
+class CaptureCommitRequest(BaseModel):
+    request_id: str
+    proposed_type: str  # task | note — chat/agent_request land with their phases
+    title: str
+    text: str | None = None
+    due_at: str | None = None
+    project_id: str | None = None
+    area_id: str | None = None
+
+
+@router.post("/capture/interpret")
+async def capture_interpret(req: InterpretRequest, request: Request):
+    """Deterministic interpretation of raw capture text → proposal.
+
+    Nothing is written by this call; the client shows the proposal for
+    user confirmation or change (explicit transitions only).
+    """
+    require_capability(request, "capture.interpret")
+    if not req.text.strip():
+        raise HTTPException(status_code=422, detail="text must not be empty")
+    return _interpret_text(req.text)
+
+
+@router.post("/capture/commit")
+async def capture_commit(req: CaptureCommitRequest, request: Request, db=Depends(get_db)):
+    """Commit a user-confirmed capture. Idempotent per request_id (protocol
+    §11): replaying a confirmed request returns the stored result without
+    re-executing — this is what makes offline queue flushes safe."""
+    require_capability(request, "capture.commit")
+    if not req.title.strip():
+        raise HTTPException(status_code=422, detail="title must not be empty")
+
+    prior = db.execute(
+        "SELECT * FROM mutations WHERE id = ?", (req.request_id,)
+    ).fetchone()
+    if prior is not None:
+        if prior["status"] == "confirmed" and prior["result"]:
+            return {"replayed": True, **json.loads(prior["result"])}
+        if prior["status"] == "pending":
+            raise HTTPException(status_code=409, detail="request already in flight")
+        db.execute("DELETE FROM mutations WHERE id = ?", (req.request_id,))
+        db.commit()  # failed → allow clean retry
+
+    record_mutation(db, req.request_id, None, "capture.commit", req.model_dump())
+
+    if req.proposed_type == "task":
+        return await _commit_task(request, db, req)
+    if req.proposed_type == "note":
+        return await _commit_note(request, db, req)
+    raise HTTPException(
+        status_code=501, detail=f"committing '{req.proposed_type}' is not available yet"
+    )
+
+
+async def _commit_task(request: Request, db, req: CaptureCommitRequest) -> dict:
+    """task proposal → Vikunja (authoritative owner), cached as an entity."""
+    cfg = request.app.state.config
+    vikunja_project = 1  # Inbox
+    if req.project_id:
+        prefix = "vikunja:project:"
+        if not req.project_id.startswith(prefix):
+            raise HTTPException(status_code=422, detail="project_id must be vikunja:project:{n}")
+        try:
+            vikunja_project = int(req.project_id[len(prefix):])
+        except ValueError:
+            raise HTTPException(status_code=422, detail="project_id must be vikunja:project:{n}")
+
+    try:
+        created = await _vikunja_create_task(
+            cfg.vikunja.url,
+            cfg.vikunja.token,
+            title=req.title.strip(),
+            project_id=vikunja_project,
+            due_date=req.due_at,
+            description=req.text,
+        )
+    except Exception as e:  # noqa: BLE001 — surfaced to the client as 502
+        complete_mutation(db, req.request_id, success=False, error=str(e))
+        raise HTTPException(status_code=502, detail=f"Vikunja error: {e}")
+
+    alias = f"vikunja:local:task:{created['id']}"
+    upsert_entity(
+        db,
+        entity_type="vikunja_task",
+        external_alias=alias,
+        display_name=created["title"],
+        source_system="vikunja",
+        raw_data=created,
+    )
+    db.execute(
+        "UPDATE mutations SET entity_alias = ? WHERE id = ?", (alias, req.request_id)
+    )
+    row = db.execute(
+        "SELECT * FROM entities WHERE external_alias = ?", (alias,)
+    ).fetchone()
+    result = {"kind": "task_created", "task": _wire_task(row)}
+    complete_mutation(db, req.request_id, success=True, result=result)
+    return {"replayed": False, **result}
+
+
+async def _commit_note(request: Request, db, req: CaptureCommitRequest) -> dict:
+    """note proposal → vault scratchpad (git-committed; resource-shaped wire —
+    the file path never leaves the server, D023)."""
+    config = request.app.state.config
+    title = req.title.strip()
+    body = (req.text or "").strip() or title
+    try:
+        _vault_append_scratchpad(config, None, heading=title, body=body)
+    except Exception as e:  # noqa: BLE001
+        complete_mutation(db, req.request_id, success=False, error=str(e))
+        raise HTTPException(status_code=502, detail=f"vault error: {e}")
+
+    # Notes are not yet readable via /v1 (features.notes=false); the id is
+    # informational until the Notes phase exposes the read surface.
+    note_id = f"vault:note:scratch:{req.request_id}"
+    db.execute(
+        "UPDATE mutations SET entity_alias = ? WHERE id = ?", (note_id, req.request_id)
+    )
+    result = {
+        "kind": "note_created",
+        "note": {"id": note_id, "title": title, "revision": 1, "updated_at": _now_iso()},
+    }
+    complete_mutation(db, req.request_id, success=True, result=result)
+    return {"replayed": False, **result}
+
+
+# ─── Change stream (protocol §11) ──────────────────────────────────────
+
+
 @router.get("/changes")
-async def changes(since: str | None = Query(default=None)):
-    """Ordered change stream (protocol §11). Skeleton: no change log is
-    maintained yet, so the stream is empty and clients are always caught
-    up (next_cursor null). Real change tracking lands with the write path."""
-    return {"next_cursor": None, "changes": []}
+async def changes(
+    since: str | None = Query(default=None),
+    request: Request = None,
+    db=Depends(get_db),
+):
+    """Ordered change stream from confirmed mutations. Cursor = mutation
+    rowid (monotonic). next_cursor null ⇒ client is caught up.
+
+    v0.1 emits `created` events for capture commits (the only writes); task
+    edits/completions from the phone join the stream when those phases land."""
+    require_capability(request, "task.read")
+    try:
+        since_id = int(since) if since else 0
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="since must be an integer cursor")
+
+    rows = db.execute(
+        """
+        SELECT rowid AS rid, entity_alias, operation, completed_at, created_at
+        FROM mutations
+        WHERE status = 'confirmed' AND entity_alias IS NOT NULL AND rowid > ?
+        ORDER BY rowid
+        LIMIT 200
+        """,
+        (since_id,),
+    ).fetchall()
+
+    def _object(alias: str) -> str:
+        if alias.startswith("vault:note"):
+            return "note"
+        return "task"  # vikunja:local:task / repo:{machine}:task
+
+    def _operation(op: str) -> str:
+        return "created" if op in ("capture.commit", "create") else "updated"
+
+    out = {
+        "next_cursor": str(rows[-1]["rid"]) if rows else None,
+        "changes": [
+            {
+                "id": r["entity_alias"],
+                "object": _object(r["entity_alias"]),
+                "operation": _operation(r["operation"]),
+                "revision": 1,
+                "updated_at": _norm_ts(r["completed_at"] or r["created_at"]) or _now_iso(),
+            }
+            for r in rows
+        ],
+    }
+    return out
