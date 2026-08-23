@@ -571,6 +571,69 @@ async def send_chat_message(
     return result
 
 
+class ChatTruncateRequest(BaseModel):
+    request_id: str
+    # Message id to keep as the last survivor; None deletes every message
+    # in the thread. Everything strictly AFTER the anchor (by the list
+    # ordering created_at, id) is deleted. Destructive — no branch kept.
+    keep_through: str | None = None
+
+
+@router.post("/chats/{chat_id}/truncate")
+async def truncate_chat(
+    chat_id: str, req: ChatTruncateRequest, request: Request, db=Depends(get_db)
+):
+    """Delete every message after `keep_through` (V-054).
+
+    The single destructive primitive behind revert / edit / regenerate:
+    the client composes truncate + send. Idempotent per request_id
+    (protocol §11) — replaying returns the stored result.
+    """
+    require_feature("chat")
+    require_capability(request, "chat.write")
+    if _thread_row(db, chat_id) is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+
+    if req.keep_through is not None:
+        anchor = db.execute(
+            "SELECT * FROM chat_messages WHERE id = ? AND chat_id = ?",
+            (req.keep_through, chat_id),
+        ).fetchone()
+        if anchor is None:
+            raise HTTPException(status_code=404, detail="keep_through message not found")
+
+    prior = db.execute(
+        "SELECT * FROM mutations WHERE id = ?", (req.request_id,)
+    ).fetchone()
+    if prior is not None:
+        if prior["status"] == "confirmed" and prior["result"]:
+            return {"replayed": True, **json.loads(prior["result"])}
+        if prior["status"] == "pending":
+            raise HTTPException(status_code=409, detail="request already in flight")
+        db.execute("DELETE FROM mutations WHERE id = ?", (req.request_id,))
+        db.commit()
+
+    record_mutation(db, req.request_id, chat_id, "chat.truncate", req.model_dump())
+
+    if req.keep_through is None:
+        cur = db.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
+    else:
+        cur = db.execute(
+            "DELETE FROM chat_messages WHERE chat_id = ?"
+            " AND (created_at, id) > (?, ?)",
+            (chat_id, anchor["created_at"], anchor["id"]),
+        )
+    deleted = cur.rowcount
+    kept = db.execute(
+        "SELECT COUNT(*) AS n FROM chat_messages WHERE chat_id = ?", (chat_id,)
+    ).fetchone()["n"]
+    _touch_thread(db, chat_id)
+
+    result = {"kept": kept, "deleted": deleted}
+    complete_mutation(db, req.request_id, True, result)
+    return result
+
+
 # ─── Chat helpers ─────────────────────────────────────────────────────
 
 
