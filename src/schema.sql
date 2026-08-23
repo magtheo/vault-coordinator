@@ -141,3 +141,32 @@ CREATE TABLE IF NOT EXISTS devices (
     approved_at TEXT,
     last_seen TEXT
 );
+
+-- Chat threads & messages (Kompakt Phase 7 / T-009). Chat is a
+-- coordinator-owned object type (D003: chat ≠ agent ≠ task ≠ note).
+-- Threads are conversation contexts; messages are an append-only log.
+-- Assistant replies are generated via the configured LLM backend
+-- (Hermes API server, OpenAI-compatible) and stored as messages —
+-- the client renders, never generates.
+CREATE TABLE IF NOT EXISTS chat_threads (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    project_id TEXT,
+    is_temporary INTEGER NOT NULL DEFAULT 0,
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'sent',
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_chat
+    ON chat_messages (chat_id, created_at);
