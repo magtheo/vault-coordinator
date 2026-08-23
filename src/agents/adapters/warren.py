@@ -22,6 +22,7 @@ Result interpretation (w-1 lesson 3, binding):
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 import httpx
@@ -80,15 +81,43 @@ def _map_state(raw: str | None) -> ExecutionState:
     return _STATE_MAP.get(raw, ExecutionState.FAILED)
 
 
+def _ts(value: Any) -> str | None:
+    """Warren v0.18: createdAt is EPOCH MILLIS; startedAt/endedAt are ISO.
+
+    Normalize both to ISO-8601 Z strings for the /v1 wire (Kompakt protocol
+    §9 strings). Live evidence: run_h35gpc6gcj1t createdAt=1787504094332.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return (
+            datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    return str(value)
+
+
 def _run_to_execution(run: dict[str, Any]) -> AgentExecution:
+    """Warren v0.18 run object (live-verified Aug 2026, remote E2E):
+
+    POST /runs and GET /runs/{id} both wrap the run as {"run": {...}} —
+    unwrap at the call sites. Fields are camelCase: agentName, projectId,
+    createdAt (epoch ms), startedAt/endedAt (ISO), no updatedAt — derive
+    the freshest of ended/started/created. There is no title; use the
+    prompt (first line, 80 chars) so the phone's run list stays readable.
+    """
+    prompt = run.get("prompt") or ""
+    title = prompt.splitlines()[0][:80] if prompt else None
     return AgentExecution(
         id=run["id"],
         kind=ExecutionKind.RUN,
-        agent=run.get("agent") or "pi",
+        agent=run.get("agentName") or run.get("agent") or "pi",
         state=_map_state(run.get("state")),
-        project_ref=run.get("project"),
-        created_at=run.get("createdAt"),
-        updated_at=run.get("updatedAt"),
+        project_ref=run.get("projectId") or run.get("project"),
+        title=title,
+        created_at=_ts(run.get("createdAt")),
+        updated_at=_ts(run.get("endedAt") or run.get("startedAt") or run.get("createdAt")),
     )
 
 
@@ -160,7 +189,8 @@ class WarrenBackend:
             json={"project": project_ref, "agent": agent, "prompt": prompt},
         )
         r.raise_for_status()
-        return _run_to_execution(r.json())
+        data = r.json()
+        return _run_to_execution(data.get("run", data))
 
     async def list_executions(
         self, project_ref: str | None = None, limit: int = 50
@@ -175,9 +205,9 @@ class WarrenBackend:
         return out[:limit]
 
     async def get(self, execution_id: str) -> AgentExecution:
-        """VERIFIED (w-1): GET /runs/{id} → full run record."""
+        """VERIFIED (w-1 + remote E2E): GET /runs/{id} → {"run": {...}}."""
         run = await self._get_json(f"/runs/{execution_id}")
-        return _run_to_execution(run)
+        return _run_to_execution(run.get("run", run))
 
     async def send(self, execution_id: str, message: str) -> AgentExecution:
         raise UnsupportedOperation("warren runs are atomic (resumable=False)")
@@ -226,6 +256,7 @@ class WarrenBackend:
         """Interpreted terminal outcome (w-1 lesson 3): failureReason=
         finalize_failed + salvage/commit evidence ⇒ SUCCEEDED."""
         run = await self._get_json(f"/runs/{execution_id}")
+        run = run.get("run", run)
         state = run.get("state")
         failure_reason = run.get("failureReason")
         salvage = run.get("salvagePath")
