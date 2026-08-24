@@ -99,6 +99,27 @@ class VoiceConfig(BaseModel):
     max_duration_s: float = 120.0
 
 
+class NotesConfig(BaseModel):
+    """Vault-wide notes surface (Phase 12 / D028 v2 — file-authoritative).
+
+    The include list doubles as the pipeline's PARA scope: RepoTasks
+    (machine status), Templates, and attachments are NOT user notes and
+    stay out of the index. Sorter/tidy settings land in V-060b.
+    """
+
+    include_dirs: list[str] = [
+        "00 - Inbox",
+        "01 - Daily",
+        "02 - Projects",
+        "03 - Areas",
+        "04 - Knowledge",
+        "05 - Archive",
+    ]
+    root_files: list[str] = ["scratchpad.md"]
+    max_title_chars: int = 200
+    max_body_chars: int = 10_000
+
+
 class WarrenBackendConfig(BaseModel):
     base_url: str = "http://127.0.0.1:8660"
     token: str = ""                # ${WARREN_API_TOKEN} in config.yaml
@@ -153,6 +174,7 @@ class AppConfig(BaseModel):
     machines_poll_seconds: int = 30
     ics_subscriptions: list[IcsSubscription] = []
     vault: VaultConfig = VaultConfig()
+    notes: NotesConfig = NotesConfig()
     ai: AIConfig = AIConfig()
     chat: ChatConfig = ChatConfig()
     voice: VoiceConfig = VoiceConfig()

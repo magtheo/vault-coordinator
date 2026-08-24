@@ -40,6 +40,10 @@ from src.capture import interpret as _interpret_text
 from src.database import get_db
 from src.llm import LlmConfig, chat_completion
 from src.models import complete_mutation, record_mutation, upsert_entity
+from src import notes as notes_core
+from src.notes import ChecksumMismatch as _NoteChecksumMismatch
+from src.notes import NoteError as _NoteError
+from src.notes import NoteNotFound as _NoteNotFound
 from src.voice import AudioDecodeError, probe_duration_s, transcribe_file
 from src.routers.projects_overview import _machines
 
@@ -58,7 +62,7 @@ FEATURES = {
     "projects": True,
     "areas": True,
     "tasks": True,
-    "notes": False,
+    "notes": True,  # Phase 12 / D028 v2: file-authoritative vault notes (V-060a)
     "inbox": True,
     "offline_capture": True,  # Phase 6: interpret+commit live; queue-flush safe (request_id replay)
     "enrollment": True,
@@ -514,14 +518,139 @@ async def today(request: Request, db=Depends(get_db)):
     }
 
 
-# ─── Shape-valid empties (backends land in later phases) ───────────────
+# ─── Notes (Phase 12 / D028 v2 — vault files are the truth) ────────────
 
 
 @router.get("/notes")
-async def list_notes(request: Request, project_id: str | None = Query(default=None), area_id: str | None = Query(default=None)):
+async def list_notes(
+    request: Request,
+    project_id: str | None = Query(default=None),
+    area_id: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+):
+    """Walk-index of PARA notes. Scratchpad pinned first, newest after."""
     require_feature("notes")
     require_capability(request, "note.read")
-    return {"notes": []}
+    rows = notes_core.scan_notes(request.app.state.config)
+    if project_id is not None:
+        rows = [r for r in rows if r.get("project_id") == project_id]
+    if area_id is not None:
+        rows = [r for r in rows if r.get("area_id") == area_id]
+    if category is not None:
+        rows = [r for r in rows if r.get("category") == category]
+    return {"notes": rows[:200]}
+
+
+@router.get("/notes/{note_id}")
+async def get_note(note_id: str, request: Request):
+    require_feature("notes")
+    require_capability(request, "note.read")
+    try:
+        return {"note": notes_core.read_note(request.app.state.config, note_id)}
+    except _NoteNotFound:
+        raise HTTPException(status_code=404, detail="note not found")
+    except _NoteError as e:
+        raise HTTPException(status_code=502, detail=f"vault error: {e}")
+
+
+class NoteUpdateRequest(BaseModel):
+    text: str
+    expected_checksum: str
+
+
+@router.put("/notes/{note_id}")
+async def update_note(note_id: str, req: NoteUpdateRequest, request: Request):
+    """Text write-through edit. Optimistic lock: stale checksum → 409 with
+    the fresh note attached; the client reloads and nothing is lost."""
+    require_feature("notes")
+    require_capability(request, "note.write")
+    config = request.app.state.config
+    if not req.text.strip():
+        raise HTTPException(status_code=422, detail="text must not be empty")
+    if len(req.text) > config.notes.max_body_chars:
+        raise HTTPException(
+            status_code=422, detail=f"text exceeds {config.notes.max_body_chars} chars"
+        )
+    try:
+        note = notes_core.write_note(
+            config, note_id, req.text, req.expected_checksum
+        )
+    except _NoteChecksumMismatch as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "checksum_mismatch", "note": e.fresh},
+        )
+    except _NoteNotFound:
+        raise HTTPException(status_code=404, detail="note not found")
+    except _NoteError as e:
+        raise HTTPException(status_code=502, detail=f"vault error: {e}")
+    return {"note": note}
+
+
+class NoteCreateRequest(BaseModel):
+    request_id: str
+    title: str = ""
+    text: str
+    source_type: str | None = None
+    source_id: str | None = None
+
+
+@router.post("/notes")
+async def create_note(req: NoteCreateRequest, request: Request, db=Depends(get_db)):
+    """Deliberate note save → individual file under 00 - Inbox (pipeline
+    stage 2; quick captures keep using the scratchpad commit path).
+    Idempotent per request_id (protocol §11) — file + git commit are
+    external effects, so the mutation ledger guards replay."""
+    require_feature("notes")
+    require_capability(request, "note.write")
+    config = request.app.state.config
+    body = req.text.strip()
+    title = (req.title or "").strip() or (body.splitlines()[0].strip() if body else "")
+    if not body:
+        raise HTTPException(status_code=422, detail="text must not be empty")
+    if len(body) > config.notes.max_body_chars:
+        raise HTTPException(
+            status_code=422, detail=f"text exceeds {config.notes.max_body_chars} chars"
+        )
+    if len(title) > config.notes.max_title_chars:
+        title = title[: config.notes.max_title_chars]
+    if req.source_type is not None and req.source_type not in notes_core.SOURCE_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"source_type must be one of {sorted(notes_core.SOURCE_TYPES)}",
+        )
+
+    prior = db.execute(
+        "SELECT * FROM mutations WHERE id = ?", (req.request_id,)
+    ).fetchone()
+    if prior is not None:
+        if prior["status"] == "confirmed" and prior["result"]:
+            return {"replayed": True, **json.loads(prior["result"])}
+        if prior["status"] == "pending":
+            raise HTTPException(status_code=409, detail="request already in flight")
+        db.execute("DELETE FROM mutations WHERE id = ?", (req.request_id,))
+        db.commit()
+
+    record_mutation(db, req.request_id, None, "note.create", req.model_dump())
+
+    try:
+        note = notes_core.create_note_file(
+            config,
+            title=title,
+            text=body,
+            source_type=req.source_type,
+            source_id=req.source_id,
+        )
+    except Exception as e:  # noqa: BLE001 — external vault/git failure → 502
+        complete_mutation(db, req.request_id, success=False, error=str(e))
+        raise HTTPException(status_code=502, detail=f"vault error: {e}")
+
+    db.execute(
+        "UPDATE mutations SET entity_alias = ? WHERE id = ?", (note["id"], req.request_id)
+    )
+    result = {"kind": "note_created", "note": note}
+    complete_mutation(db, req.request_id, True, result)
+    return {"replayed": False, **result}
 
 
 # NOTE: GET /agents and GET /agent-runs moved to src/routers/agents.py
