@@ -22,13 +22,14 @@ async def send_notification(
     actions: str | None = None,
     username: str = "",
     password: str = "",
+    priority: str = "high",
 ) -> dict:
     """Send a push notification via ntfy.
     Uses deterministic message_id for dedup if provided."""
     headers = {
         "Title": title,
         "Tags": tags,
-        "Priority": "high",
+        "Priority": priority,
     }
     if message_id:
         headers["Message-ID"] = message_id

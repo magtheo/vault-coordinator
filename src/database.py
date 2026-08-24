@@ -25,6 +25,18 @@ def init_database(db_path: str | None = None) -> None:
     conn = get_connection(db_path)
     schema_path = Path(__file__).parent / "schema.sql"
     schema_sql = schema_path.read_text()
+    # Lightweight migrations for tables created before a column existed —
+    # must run BEFORE executescript: the schema's new indexes reference
+    # these columns, and CREATE TABLE IF NOT EXISTS won't alter old tables.
+    for table, column, ddl in [
+        ("agent_executions", "watched", "ALTER TABLE agent_executions ADD COLUMN watched INTEGER NOT NULL DEFAULT 0"),
+        ("agent_executions", "episode", "ALTER TABLE agent_executions ADD COLUMN episode INTEGER NOT NULL DEFAULT 0"),
+    ]:
+        existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        # existing is empty on a fresh DB — executescript's CREATE TABLE
+        # already includes the column, so only ALTER legacy tables.
+        if existing and column not in existing:
+            conn.execute(ddl)
     conn.executescript(schema_sql)
     conn.commit()
     conn.close()

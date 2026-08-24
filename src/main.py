@@ -79,6 +79,10 @@ async def lifespan(app: FastAPI):
                 registry.available(),
                 registry.default_backend,
             )
+            # V-057 agent-loop watcher: notify on watched-run settle
+            from src.agents.watcher import start_watcher
+
+            start_watcher(app)
 
     logging.getLogger("vault").info(
         "Restored %d reminders, reconciled %d orphaned schedules, %d ICS sync jobs",
@@ -91,6 +95,9 @@ async def lifespan(app: FastAPI):
 
     machines_cache.stop()
     shutdown_scheduler()
+    from src.agents.watcher import stop_watcher
+
+    stop_watcher()
     registry = getattr(app.state, "agent_registry", None)
     if registry is not None:
         await registry.aclose()

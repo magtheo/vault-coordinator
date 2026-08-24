@@ -273,11 +273,43 @@ async def list_areas(request: Request):
 # ─── Inbox (attention view; not a source of truth) ─────────────────────
 
 
+def _agent_alert_items(db) -> list[dict]:
+    """Unread agent-run alerts → inbox items (V-057).
+
+    The alert records the *event*; the item deep-links to the source object
+    (source_id = backend execution id, resolvable via /v1/agent-runs/{id}).
+    """
+    from src.agents import projections
+
+    items = []
+    for row in projections.list_unread_alerts(db):
+        priority = "high" if row["outcome"] == "failed" else "normal"
+        who = row["agent"] or "agent"
+        verb = {"succeeded": "done", "replied": "replied", "failed": "failed"}.get(
+            row["outcome"], row["outcome"]
+        )
+        items.append(
+            {
+                "id": row["id"],
+                "source_type": "agent_run",
+                "source_id": row["backend_execution_id"],
+                "title": f"{who} {verb}: {(row['title'] or 'run').strip().splitlines()[0][:80]}",
+                "summary": row["outcome"],
+                "timestamp": row["created_at"],
+                "priority": priority,
+                "actions": [],
+                "revision": 1,
+                "updated_at": row["created_at"],
+            }
+        )
+    return items
+
+
 @router.get("/inbox")
 async def list_inbox(request: Request, db=Depends(get_db)):
     require_capability(request, "inbox.read")
     now = _now_iso()
-    items = []
+    items = _agent_alert_items(db)  # events first (newest first)
     for i, a in enumerate(_attention_alerts(request, db)):
         items.append(
             {
@@ -294,6 +326,19 @@ async def list_inbox(request: Request, db=Depends(get_db)):
             }
         )
     return {"inbox_items": items}
+
+
+@router.post("/inbox/{alert_id}/read")
+async def read_inbox_alert(alert_id: str, request: Request, db=Depends(get_db)):
+    """Dismiss an agent-run alert (V-057). Derived alerts clear themselves."""
+    from src.agents import projections
+
+    require_capability(request, "inbox.read")
+    if not alert_id.startswith("alert:"):
+        raise HTTPException(status_code=404, detail="unknown alert")
+    if not projections.mark_alert_read(db, alert_id):
+        raise HTTPException(status_code=404, detail="unknown alert")
+    return {"read": alert_id}
 
 
 def _attention_alerts(request: Request, db) -> list[dict]:
@@ -393,7 +438,7 @@ async def today(request: Request, db=Depends(get_db)):
                 due_today.append(t)
     due_today.sort(key=lambda t: t["due_at"] or "9999")
 
-    attention = [
+    attention = _agent_alert_items(db) + [
         {
             "id": f"alert:{a.get('type')}:{a.get('machine') or i}",
             "source_type": None,

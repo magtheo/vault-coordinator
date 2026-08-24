@@ -126,6 +126,9 @@ class AgentsConfig(BaseModel):
     warren: WarrenBackendConfig = WarrenBackendConfig()
     opencode: OpenCodeBackendConfig = OpenCodeBackendConfig()
     projects: dict[str, AgentsProjectMapping] = {}  # repo id → mapping
+    # V-057 agent-loop watcher
+    poll_seconds: float = 5.0
+    notify_ntfy: bool = True
 
 
 class AppConfig(BaseModel):

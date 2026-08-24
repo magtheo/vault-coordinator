@@ -171,6 +171,7 @@ async def dispatch(request: Request, body: DispatchRequest, db=Depends(get_db)):
     except Exception as exc:
         raise _backend_error(exc)
     projections.upsert_execution(db, name, ex, prompt=body.prompt)
+    projections.arm_watch(db, name, ex.id)  # V-057: notify on settle
     return {"agent_run": _exec_to_wire(name, ex)}
 
 
@@ -307,6 +308,7 @@ async def send_to_agent_run(
     except Exception as exc:
         raise _backend_error(exc)
     projections.upsert_execution(db, name, ex)
+    projections.arm_watch(db, name, ex.id)  # V-057: notify when the turn settles
     return {"agent_run": _exec_to_wire(name, ex)}
 
 
