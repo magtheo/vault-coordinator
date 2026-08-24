@@ -117,6 +117,13 @@ async def poll_once(
         )
         projections.clear_watch(db, backend_name, run["backend_execution_id"])
         alerts += 1
+        # V-058: fan the alert out to live SSE subscribers (the app's own
+        # notification transport) — same item shape the inbox serves.
+        alert_row = projections.get_alert(db, alert_id)
+        if alert_row is not None:
+            from src.agents.alertbus import alert_row_to_item, publish
+
+            publish(alert_row_to_item(alert_row))
         if getattr(config.agents, "notify_ntfy", True):
             tag, prio, _ = _OUTCOME_STYLE[outcome]
             ntfy = config.ntfy
