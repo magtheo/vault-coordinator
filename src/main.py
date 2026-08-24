@@ -52,6 +52,11 @@ async def lifespan(app: FastAPI):
 
     ics_jobs = start_ics_sync_jobs(config)
 
+    # Notes sweep jobs (scratchpad → inbox sorter, V-060b)
+    from src.notes_sorter import start_notes_sweep_jobs
+
+    notes_jobs = start_notes_sweep_jobs(config)
+
     # Machines background cache (hosts as a synced projection — design §4)
     from src.machines_cache import MachinesCache
 
@@ -85,10 +90,11 @@ async def lifespan(app: FastAPI):
             start_watcher(app)
 
     logging.getLogger("vault").info(
-        "Restored %d reminders, reconciled %d orphaned schedules, %d ICS sync jobs",
+        "Restored %d reminders, reconciled %d orphaned schedules, %d ICS sync jobs, %d notes sweeps",
         restored,
         orphaned,
         ics_jobs,
+        notes_jobs,
     )
 
     yield

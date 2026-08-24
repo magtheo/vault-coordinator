@@ -99,12 +99,25 @@ class VoiceConfig(BaseModel):
     max_duration_s: float = 120.0
 
 
+class NoteBucket(BaseModel):
+    """Sorter registry entry — deterministic rules only, no LLM in the
+    routing decision (D028 v2). Key is the `00 - Inbox/<key>.md` slug;
+    name is the human H1 written on first use."""
+
+    key: str
+    name: str
+    aliases: list[str] = []
+    keywords: list[str] = []
+
+
 class NotesConfig(BaseModel):
     """Vault-wide notes surface (Phase 12 / D028 v2 — file-authoritative).
 
     The include list doubles as the pipeline's PARA scope: RepoTasks
     (machine status), Templates, and attachments are NOT user notes and
-    stay out of the index. Sorter/tidy settings land in V-060b.
+    stay out of the index. Empty `buckets` (the default) means every
+    scratchpad section lands in `unsorted.md` — the honest cold-start
+    for new vaults; structure emerges from use, never blocks it.
     """
 
     include_dirs: list[str] = [
@@ -118,6 +131,14 @@ class NotesConfig(BaseModel):
     root_files: list[str] = ["scratchpad.md"]
     max_title_chars: int = 200
     max_body_chars: int = 10_000
+
+    # V-060b sorter pipeline
+    sorter_enabled: bool = True
+    tidy_enabled: bool = True
+    sweeps: list[str] = ["07:00", "12:00", "17:00", "22:00"]
+    sweep_timezone: str = "Europe/Oslo"
+    buckets: list[NoteBucket] = []
+    tidy_max_chars: int = 6_000
 
 
 class WarrenBackendConfig(BaseModel):
