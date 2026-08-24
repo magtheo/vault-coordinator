@@ -191,6 +191,13 @@ def list_unread_alerts(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite
     ).fetchall()
 
 
+def get_alert(conn: sqlite3.Connection, alert_id: str) -> sqlite3.Row | None:
+    """Fetch one alert row by id (V-058 — the watcher publishes it on the bus)."""
+    return conn.execute(
+        "SELECT * FROM agent_run_alerts WHERE id = ?", (alert_id,)
+    ).fetchone()
+
+
 def mark_alert_read(conn: sqlite3.Connection, alert_id: str) -> bool:
     """Dismiss an inbox alert. Returns True only on the first dismissal."""
     cur = conn.execute(

@@ -25,6 +25,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.adapters.machine_projects import load_machine_projects
@@ -278,31 +279,12 @@ def _agent_alert_items(db) -> list[dict]:
 
     The alert records the *event*; the item deep-links to the source object
     (source_id = backend execution id, resolvable via /v1/agent-runs/{id}).
+    Shape via alertbus.alert_row_to_item — shared with /v1/alerts/stream.
     """
     from src.agents import projections
+    from src.agents.alertbus import alert_row_to_item
 
-    items = []
-    for row in projections.list_unread_alerts(db):
-        priority = "high" if row["outcome"] == "failed" else "normal"
-        who = row["agent"] or "agent"
-        verb = {"succeeded": "done", "replied": "replied", "failed": "failed"}.get(
-            row["outcome"], row["outcome"]
-        )
-        items.append(
-            {
-                "id": row["id"],
-                "source_type": "agent_run",
-                "source_id": row["backend_execution_id"],
-                "title": f"{who} {verb}: {(row['title'] or 'run').strip().splitlines()[0][:80]}",
-                "summary": row["outcome"],
-                "timestamp": row["created_at"],
-                "priority": priority,
-                "actions": [],
-                "revision": 1,
-                "updated_at": row["created_at"],
-            }
-        )
-    return items
+    return [alert_row_to_item(row) for row in projections.list_unread_alerts(db)]
 
 
 @router.get("/inbox")
@@ -339,6 +321,70 @@ async def read_inbox_alert(alert_id: str, request: Request, db=Depends(get_db)):
     if not projections.mark_alert_read(db, alert_id):
         raise HTTPException(status_code=404, detail="unknown alert")
     return {"read": alert_id}
+
+
+# ─── Alert stream (V-058: the app IS the notification client) ──────────
+
+
+@router.get("/alerts/stream")
+async def alert_stream(request: Request, db=Depends(get_db)):
+    """SSE feed of agent-run alerts (D008/D009 foreground-SSE transport).
+
+    On connect: every UNREAD alert replays once (client-side notification
+    ids are the alert ids, so replays are visually idempotent). Then live
+    events as the V-057 watcher records them. Heartbeat comments keep
+    Tailscale/proxies from reaping the connection. Read state is the
+    dedupe mechanism — no Last-Event-ID cursor needed (D009: cursor sync
+    is the correctness mechanism, this stream is latency optimization).
+    """
+    import asyncio
+
+    from src.agents import alertbus
+
+    require_feature("agents")
+    require_capability(request, "inbox.read")
+
+    # Subscribe BEFORE snapshotting: an alert recorded in between lands in
+    # both the queue and the snapshot — dedupe by id below. The dependency
+    # connection stays open for the stream's lifetime (WAL reader — never
+    # blocks the watcher's writes) and only reads at snapshot time.
+    q = alertbus.subscribe()
+    try:
+        snapshot = _agent_alert_items(db)
+    except BaseException:
+        alertbus.unsubscribe(q)
+        raise
+    seen = {item["id"] for item in snapshot}
+    heartbeat = getattr(request.app.state, "alert_heartbeat", 15.0)
+
+    async def gen():
+        try:
+            for item in snapshot:
+                yield _sse_alert(item)
+            while True:
+                try:
+                    item = await asyncio.wait_for(q.get(), timeout=heartbeat)
+                except asyncio.TimeoutError:
+                    yield ": hb\n\n"
+                    continue
+                if item["id"] in seen:
+                    continue
+                seen.add(item["id"])
+                yield _sse_alert(item)
+        finally:
+            alertbus.unsubscribe(q)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _sse_alert(item: dict) -> str:
+    import json as _json
+
+    return f"event: alert\nid: {item['id']}\ndata: {_json.dumps(item)}\n\n"
 
 
 def _attention_alerts(request: Request, db) -> list[dict]:
