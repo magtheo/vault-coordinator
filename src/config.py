@@ -87,6 +87,18 @@ class ChatConfig(BaseModel):
     system_prompt: str = ""         # empty → src.llm.DEFAULT_SYSTEM_PROMPT
 
 
+class VoiceConfig(BaseModel):
+    """Server-side STT (Phase 11, V-059). faster-whisper on CPU int8 —
+    Pascal GPU not worth the CT2 CUDA fight for 5–60 s clips."""
+    model_size: str = "small"   # tiny|base|small|medium — small = Norwegian floor
+    device: str = "cpu"
+    compute_type: str = "int8"
+    cpu_threads: int = 8
+    default_language: str = ""  # "" = auto-detect per clip; "no" forces Norwegian
+    max_upload_bytes: int = 26_214_400  # 25 MiB — ~27 min of opus, way past the cap below
+    max_duration_s: float = 120.0
+
+
 class WarrenBackendConfig(BaseModel):
     base_url: str = "http://127.0.0.1:8660"
     token: str = ""                # ${WARREN_API_TOKEN} in config.yaml
@@ -143,6 +155,7 @@ class AppConfig(BaseModel):
     vault: VaultConfig = VaultConfig()
     ai: AIConfig = AIConfig()
     chat: ChatConfig = ChatConfig()
+    voice: VoiceConfig = VoiceConfig()
     agents: AgentsConfig = AgentsConfig()
     auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300

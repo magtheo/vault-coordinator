@@ -49,6 +49,9 @@ DEFAULT_DEVICE_CAPABILITIES = [
     # action classes). Admins can still trim these per device at approval.
     "capture.interpret",
     "capture.commit",
+    # Phase 11: upload one explicit clip → transcript. No writes; the
+    # transcript only becomes an object via explicit user transitions.
+    "voice.transcribe",
 ]
 
 VALID_TRUST_CLASSES = {"low", "medium", "admin"}
