@@ -209,7 +209,10 @@ class OpenCodeBackend:
             kind=ExecutionKind.SESSION,
             agent=agent or ses.get("agent") or "build",
             state=ExecutionState.RUNNING,
-            project_ref=project_ref,
+            # "" (no ref passed) → None: the wire contract says project_ref is
+            # nullable, and an empty string renders as a dangling separator
+            # client-side (observed live Aug 24, T-017 probe).
+            project_ref=project_ref or None,
             title=ses.get("title"),
             created_at=_ms_to_iso((ses.get("time") or {}).get("created")),
             updated_at=_ms_to_iso((ses.get("time") or {}).get("updated")),

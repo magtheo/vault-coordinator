@@ -169,6 +169,7 @@ async def test_warren() -> None:
 
 
 def opencode_mock(requests: list[str], turn_delay: float = 0.0) -> httpx.MockTransport:
+    counter = {"n": 0}
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request.url.path)
         p = request.url.path
@@ -184,8 +185,9 @@ def opencode_mock(requests: list[str], turn_delay: float = 0.0) -> httpx.MockTra
         if p == "/api/session" and request.method == "POST":
             body = json.loads(request.content)
             assert body["model"]["id"] == "glm-5.2", "must use catalog-valid model"
+            counter["n"] += 1
             return httpx.Response(200, json={"data": {
-                "id": "ses_new1", "agent": body.get("agent", "build"), "title": None,
+                "id": f"ses_new{counter['n']}", "agent": body.get("agent", "build"), "title": None,
                 "time": {"created": 1787499293418, "updated": 1787499293486},
             }})
         if p == "/session":
@@ -282,6 +284,13 @@ async def test_opencode() -> None:
     cret = await b.run_command("ses_old1", "init", "")
     await b._inflight["ses_old1"]
     check("run_command drives turn", cret.id == "ses_old1" and settled == ["ses_new1", "ses_old1"])
+
+    # V-056: "" (no project passed) must normalize to None — an empty string
+    # renders as a dangling separator client-side (observed live Aug 24).
+    check("dispatch keeps a real project_ref", ex.project_ref == "kodeverket")
+    ex_noref = await b.dispatch("scratch work", "", "")
+    check("dispatch without ref → None", ex_noref.project_ref is None)
+    await b._inflight["ses_new2"]
 
     await b.aclose()
 
