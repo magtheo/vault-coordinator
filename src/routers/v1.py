@@ -20,13 +20,15 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from src.adapters.machine_projects import load_machine_projects
 from src.adapters.vault import append_scratchpad as _vault_append_scratchpad
@@ -38,6 +40,7 @@ from src.capture import interpret as _interpret_text
 from src.database import get_db
 from src.llm import LlmConfig, chat_completion
 from src.models import complete_mutation, record_mutation, upsert_entity
+from src.voice import AudioDecodeError, probe_duration_s, transcribe_file
 from src.routers.projects_overview import _machines
 
 log = logging.getLogger(__name__)
@@ -59,6 +62,7 @@ FEATURES = {
     "inbox": True,
     "offline_capture": True,  # Phase 6: interpret+commit live; queue-flush safe (request_id replay)
     "enrollment": True,
+    "voice_transcription": True,  # Phase 11: /voice/transcribe (V-059, CPU faster-whisper)
 }
 
 
@@ -852,6 +856,85 @@ class CaptureCommitRequest(BaseModel):
     due_at: str | None = None
     project_id: str | None = None
     area_id: str | None = None
+
+
+@router.post("/voice/transcribe")
+async def voice_transcribe(
+    request: Request,
+    audio: UploadFile = File(..., description="One explicitly recorded clip (no background audio)"),
+    language: str = Form("", description='Optional ISO code ("no", "en"); empty = auto-detect'),
+):
+    """Phase 11 V-059: upload → CPU faster-whisper → transcript.
+
+    The clip is a temp file scoped to THIS request and is deleted in a
+    finally block — audio is never persisted, success or failure (dev
+    plan §13 explicit-recording contract). Transcription runs in the
+    threadpool; the model is a serialized process-wide singleton.
+    """
+    require_capability(request, "voice.transcribe")
+    require_feature("voice_transcription")
+    cfg = request.app.state.config.voice
+
+    content_type = (audio.content_type or "").split(";")[0].strip().lower()
+    if not (content_type.startswith("audio/") or content_type == "application/ogg"):
+        raise HTTPException(
+            status_code=415, detail=f"unsupported content type {content_type!r}"
+        )
+
+    # Streamed read with a hard cap — oversized bodies are cut mid-flight,
+    # never buffered past the limit.
+    data = await audio.read(cfg.max_upload_bytes + 1)
+    if not data:
+        raise HTTPException(status_code=422, detail="audio upload is empty")
+    if len(data) > cfg.max_upload_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"audio exceeds {cfg.max_upload_bytes} byte cap",
+        )
+
+    suffix = _audio_suffix(audio.filename, content_type)
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = Path(handle.name)
+    try:
+        handle.write(data)
+        handle.close()
+        try:
+            duration = await run_in_threadpool(probe_duration_s, str(tmp_path))
+        except AudioDecodeError:
+            raise HTTPException(status_code=415, detail="audio could not be decoded")
+        if duration > cfg.max_duration_s:
+            raise HTTPException(
+                status_code=413, detail=f"clip longer than {cfg.max_duration_s:.0f}s cap"
+            )
+
+        lang = (language or "").strip().lower() or cfg.default_language or None
+        try:
+            result = await run_in_threadpool(
+                transcribe_file, str(tmp_path), language=lang, cfg=cfg
+            )
+        except ValueError as exc:  # e.g. unsupported language code from client
+            raise HTTPException(status_code=400, detail=str(exc))
+        return result
+    finally:
+        tmp_path.unlink(missing_ok=True)  # dev plan §13: temp audio never survives
+
+
+def _audio_suffix(filename: str | None, content_type: str) -> str:
+    """Best-effort suffix for the temp file (av sniffs content anyway,
+    but a readable suffix keeps debugging civil)."""
+    if filename and "." in filename:
+        return "." + filename.rsplit(".", 1)[1][:8]
+    return {
+        "audio/webm": ".webm",
+        "audio/ogg": ".ogg",
+        "application/ogg": ".ogg",
+        "audio/mpeg": ".mp3",
+        "audio/mp4": ".m4a",
+        "audio/x-m4a": ".m4a",
+        "audio/wav": ".wav",
+        "audio/x-wav": ".wav",
+        "audio/aac": ".aac",
+    }.get(content_type, ".bin")
 
 
 @router.post("/capture/interpret")
