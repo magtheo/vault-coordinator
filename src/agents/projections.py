@@ -124,3 +124,77 @@ def state_is_terminal(state: str) -> bool:
         ExecutionState.FAILED.value,
         ExecutionState.CANCELLED.value,
     )
+
+
+# ─── V-057: watch arming (agent-loop notifications) ────────────────────
+
+
+def arm_watch(
+    conn: sqlite3.Connection, backend: str, backend_execution_id: str
+) -> int:
+    """Arm the watcher for a run/session and open a new alert episode.
+
+    Called on dispatch and on send — every user-initiated turn gets exactly
+    one completion alert. Returns the episode number.
+    """
+    conn.execute(
+        """UPDATE agent_executions
+           SET watched = 1, episode = episode + 1, updated_at = ?
+           WHERE backend = ? AND backend_execution_id = ?""",
+        (_now_iso(), backend, backend_execution_id),
+    )
+    conn.commit()
+    row = get_by_native_id(conn, backend, backend_execution_id)
+    return int(row["episode"]) if row else 0
+
+
+def list_watched(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM agent_executions WHERE watched = 1"
+    ).fetchall()
+
+
+def clear_watch(conn: sqlite3.Connection, backend: str, backend_execution_id: str) -> None:
+    conn.execute(
+        "UPDATE agent_executions SET watched = 0, updated_at = ? "
+        "WHERE backend = ? AND backend_execution_id = ?",
+        (_now_iso(), backend, backend_execution_id),
+    )
+    conn.commit()
+
+
+def record_alert(
+    conn: sqlite3.Connection,
+    backend: str,
+    backend_execution_id: str,
+    episode: int,
+    agent: str | None,
+    title: str | None,
+    outcome: str,
+) -> str:
+    """Insert an alert row (idempotent per episode). Returns the alert id."""
+    alert_id = f"alert:{backend_execution_id}:{episode}"
+    conn.execute(
+        """INSERT OR IGNORE INTO agent_run_alerts
+           (id, backend, backend_execution_id, agent, title, outcome, created_at, read)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0)""",
+        (alert_id, backend, backend_execution_id, agent, title, outcome, _now_iso()),
+    )
+    conn.commit()
+    return alert_id
+
+
+def list_unread_alerts(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM agent_run_alerts WHERE read = 0 ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def mark_alert_read(conn: sqlite3.Connection, alert_id: str) -> bool:
+    """Dismiss an inbox alert. Returns True only on the first dismissal."""
+    cur = conn.execute(
+        "UPDATE agent_run_alerts SET read = 1 WHERE id = ? AND read = 0", (alert_id,)
+    )
+    conn.commit()
+    return cur.rowcount > 0

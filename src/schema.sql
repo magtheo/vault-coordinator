@@ -188,6 +188,8 @@ CREATE TABLE IF NOT EXISTS agent_executions (
     result_summary       TEXT,
     tokens_in            INTEGER,
     tokens_out           INTEGER,
+    watched              INTEGER NOT NULL DEFAULT 0,  -- V-057: watcher is polling this run
+    episode              INTEGER NOT NULL DEFAULT 0,  -- V-057: user-initiated turn counter (alert nonce)
     created_at           TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -195,3 +197,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_exec_backend_native
     ON agent_executions (backend, backend_execution_id);
 CREATE INDEX IF NOT EXISTS idx_agent_exec_updated
     ON agent_executions (updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_exec_watched
+    ON agent_executions (watched) WHERE watched = 1;
+
+-- V-057: terminal-state agent events surfaced in the Inbox (a view — items
+-- deep-link to the run; this table records the *event*, not the run state).
+CREATE TABLE IF NOT EXISTS agent_run_alerts (
+    id                   TEXT PRIMARY KEY,   -- alert:{backend_execution_id}:{episode}
+    backend              TEXT NOT NULL,
+    backend_execution_id TEXT NOT NULL,
+    agent                TEXT,
+    title                TEXT,
+    outcome              TEXT NOT NULL,      -- succeeded | failed | replied
+    created_at           TEXT NOT NULL,
+    read                 INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_agent_alerts_unread
+    ON agent_run_alerts (read, created_at DESC);
