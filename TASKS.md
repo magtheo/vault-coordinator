@@ -1,27 +1,27 @@
 # Tasks
 <!-- synced from Obsidian Vault — edit here or in Obsidian -->
 
-- [ ] V-001 Install and verify Vikunja (Docker, :3456)
-- [ ] V-002 Install and verify Radicale (Docker, :5232, two calendars)
-- [ ] V-003 Configure DAVx⁵ on Android + identity round-trip test
-- [ ] V-004 Install and verify ntfy (Docker, :8090)
-- [ ] V-005 Set up repo, venv, config.yaml, FastAPI skeleton
-- [ ] V-006 SQLite schema (entities, relationships, repo_snapshots, sync_state, notifications)
-- [ ] V-007 systemd service + Tailscale exposure
-- [ ] V-008 Entity CRUD + alias resolution
-- [ ] V-009 Relationship CRUD (create, query, tombstone, health check)
-- [ ] V-010 get_relationship_by_event_uid
-- [ ] V-011 Vikunja adapter (read tasks, sync to entities)
-- [ ] V-012 Radicale adapter (create/read/update/delete CalDAV events)
-- [ ] V-013 Repository adapter (parse TASKS.md + record provenance)
-- [ ] V-014 Idempotent POST /api/schedule endpoint
-- [ ] V-015 React/TypeScript + Vite setup
-- [ ] V-016 Task list screen with sync indicators
-- [ ] V-017 Schedule bottom sheet (start + duration, 4 taps)
-- [ ] V-018 Today's schedule screen
-- [ ] V-019 ntfy reminder worker (schedule, reschedule, cancel)
-- [ ] V-020 Rebuild scheduler from DB on restart
-- [ ] V-021 Run all 12 integration tests
+- [x] V-001 Install and verify Vikunja (Docker, :3456) *(audit Aug 24: live, 200 OK, token-wired)*
+- [x] V-002 Install and verify Radicale (Docker, :5232, two calendars) *(audit Aug 24: live, auth redirect OK)*
+- [x] V-003 Configure DAVx⁵ on Android + identity round-trip test *(audit Aug 24: superseded — Kompakt app renders calendar via /v1/today, phone E2E passed Aug 23; DAVx⁵ path dropped)*
+- [x] V-004 Install and verify ntfy (Docker, :8090) *(audit Aug 24: live, publishing V-057 agent alerts)*
+- [x] V-005 Set up repo, venv, config.yaml, FastAPI skeleton *(audit Aug 24: systemd :8650)*
+- [x] V-006 SQLite schema (entities, relationships, repo_snapshots, sync_state, notifications) *(audit Aug 24: schema.sql live, evolved through V-057)*
+- [x] V-007 systemd service + Tailscale exposure *(audit Aug 24: systemd --user unit; phone reached it via tailnet Aug 23)*
+- [x] V-008 Entity CRUD + alias resolution *(audit Aug 24: in routers, suite green)*
+- [x] V-009 Relationship CRUD (create, query, tombstone, health check) *(audit Aug 24: in routers, suite green)*
+- [x] V-010 get_relationship_by_event_uid *(audit Aug 24: event_uid in models/reminders)*
+- [x] V-011 Vikunja adapter (read tasks, sync to entities) *(audit Aug 24: src/adapters/vikunja.py)*
+- [x] V-012 Radicale adapter (create/read/update/delete CalDAV events) *(audit Aug 24: src/adapters/radicale.py)*
+- [x] V-013 Repository adapter (parse TASKS.md + record provenance) *(audit Aug 24: src/adapters/repos.py)*
+- [x] V-014 Idempotent POST /api/schedule endpoint *(audit Aug 24: src/routers/schedule.py)*
+- [x] V-015 React/TypeScript + Vite setup *(audit Aug 24: frontend/, SPA served at :8650 root)*
+- [x] V-016 Task list screen with sync indicators *(audit Aug 24: TaskList.tsx)*
+- [x] V-017 Schedule bottom sheet (start + duration, 4 taps) *(audit Aug 24: ScheduleSheet.tsx)*
+- [x] V-018 Today's schedule screen *(audit Aug 24: TodaySchedule.tsx)*
+- [x] V-019 ntfy reminder worker (schedule, reschedule, cancel) *(audit Aug 24: src/reminders.py, APScheduler)*
+- [x] V-020 Rebuild scheduler from DB on restart *(audit Aug 24: lifespan rebuild_scheduler_from_db)*
+- [x] V-021 Run all 12 integration tests *(audit Aug 24: superseded — absorbed into the evolving suite, now 171 checks, all green)*
 - [x] V-022 machine-status script + forced-command allowlist (machine repo, ADR 009)
 - [x] V-023 Bearer-token auth middleware + CORS lockdown (config auth_token)
 - [x] V-024 Machines adapter (localhost subprocess + SSH pull) + /api/machines
