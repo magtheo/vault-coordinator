@@ -44,6 +44,7 @@ from src import notes as notes_core
 from src.notes import ChecksumMismatch as _NoteChecksumMismatch
 from src.notes import NoteError as _NoteError
 from src.notes import NoteNotFound as _NoteNotFound
+from src import notes_sorter as _notes_sorter
 from src.voice import AudioDecodeError, probe_duration_s, transcribe_file
 from src.routers.projects_overview import _machines
 
@@ -1179,6 +1180,13 @@ async def _commit_note(request: Request, db, req: CaptureCommitRequest) -> dict:
         "note": {"id": note_id, "title": title, "revision": 1, "updated_at": _now_iso()},
     }
     complete_mutation(db, req.request_id, success=True, result=result)
+
+    # V-060b: fire-and-forget scratchpad → inbox sort. LLM tidy latency
+    # never touches the client; the lock skips if a pass is in flight.
+    import asyncio
+
+    asyncio.create_task(_notes_sorter.trigger_sort(config))
+
     return {"replayed": False, **result}
 
 
