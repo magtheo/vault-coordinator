@@ -63,6 +63,7 @@ OPENCODE_CAPABILITIES = BackendCapabilities(
     commands=True,
     event_stream=True,
     project_registration=False,
+    workspace_selection=True,  # T-022c: dispatch takes a workspace ref
 )
 
 # Long agent turns run minutes — the driver POST needs a long ceiling.
