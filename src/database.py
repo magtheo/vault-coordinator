@@ -31,6 +31,10 @@ def init_database(db_path: str | None = None) -> None:
     for table, column, ddl in [
         ("agent_executions", "watched", "ALTER TABLE agent_executions ADD COLUMN watched INTEGER NOT NULL DEFAULT 0"),
         ("agent_executions", "episode", "ALTER TABLE agent_executions ADD COLUMN episode INTEGER NOT NULL DEFAULT 0"),
+        ("chat_threads", "scope_type", "ALTER TABLE chat_threads ADD COLUMN scope_type TEXT"),
+        ("chat_threads", "scope_ref", "ALTER TABLE chat_threads ADD COLUMN scope_ref TEXT"),
+        ("chat_threads", "agent_execution_id", "ALTER TABLE chat_threads ADD COLUMN agent_execution_id TEXT"),
+        ("chat_threads", "pending_turn", "ALTER TABLE chat_threads ADD COLUMN pending_turn INTEGER NOT NULL DEFAULT 0"),
     ]:
         existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         # existing is empty on a fresh DB — executescript's CREATE TABLE
