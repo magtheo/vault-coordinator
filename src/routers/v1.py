@@ -642,6 +642,9 @@ class NoteCreateRequest(BaseModel):
     text: str
     source_type: str | None = None
     source_id: str | None = None
+    # V-064: vault project target — full id `vault:project:{slug}`; None →
+    # `00 - Inbox/`. Machine projects have no vault folder → 422.
+    project_id: str | None = None
 
 
 @router.post("/notes")
@@ -668,6 +671,22 @@ async def create_note(req: NoteCreateRequest, request: Request, db=Depends(get_d
             status_code=422,
             detail=f"source_type must be one of {sorted(notes_core.SOURCE_TYPES)}",
         )
+    project_name: str | None = None
+    if req.project_id is not None:
+        if not req.project_id.startswith("vault:project:"):
+            raise HTTPException(
+                status_code=422,
+                detail="project_id must be a full vault:project:{slug} id "
+                "(machine projects have no vault folder)",
+            )
+        slug = req.project_id.removeprefix("vault:project:")
+        project_name = next(
+            (p["name"] for p in list_vault_projects(config) if p["slug"] == slug), None
+        )
+        if project_name is None:
+            raise HTTPException(
+                status_code=422, detail=f"unknown vault project: {slug}"
+            )
 
     prior = db.execute(
         "SELECT * FROM mutations WHERE id = ?", (req.request_id,)
@@ -689,6 +708,7 @@ async def create_note(req: NoteCreateRequest, request: Request, db=Depends(get_d
             text=body,
             source_type=req.source_type,
             source_id=req.source_id,
+            project_name=project_name,
         )
     except Exception as e:  # noqa: BLE001 — external vault/git failure → 502
         complete_mutation(db, req.request_id, success=False, error=str(e))

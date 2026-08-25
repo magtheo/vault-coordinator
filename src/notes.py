@@ -273,27 +273,35 @@ def _file_slug(rel: str, limit: int = 40) -> str:
     return slug[:limit]
 
 
-def _unique_inbox_path(config, root: Path, title: str) -> Path:
-    """`00 - Inbox/<yyyy-mm-dd>-<slug>.md`, suffixed -2, -3… on collision."""
+def _unique_note_path(config, root: Path, folder: str, title: str) -> Path:
+    """`<folder>/<yyyy-mm-dd>-<slug>.md`, suffixed -2, -3… on collision."""
     day = datetime.now().strftime("%Y-%m-%d")
     base = f"{day}-{_file_slug(title)}"
-    inbox = root / INBOX_DIR
-    inbox.mkdir(parents=True, exist_ok=True)
-    candidate = inbox / f"{base}.md"
+    target = root / folder
+    target.mkdir(parents=True, exist_ok=True)
+    candidate = target / f"{base}.md"
     n = 2
     while candidate.exists():
-        candidate = inbox / f"{base}-{n}.md"
+        candidate = target / f"{base}-{n}.md"
         n += 1
     return candidate
 
 
 def create_note_file(
-    config, *, title: str, text: str, source_type: str | None, source_id: str | None
+    config,
+    *,
+    title: str,
+    text: str,
+    source_type: str | None,
+    source_id: str | None,
+    project_name: str | None = None,
 ) -> dict:
-    """System note creation → individual file under 00 - Inbox (Phase 12
-    pipeline: deliberate saves never enter the scratchpad stream)."""
+    """System note creation → individual file (Phase 12 pipeline: deliberate
+    saves never enter the scratchpad stream). `project_name` targets
+    `02 - Projects/<name>/` (V-064); None → `00 - Inbox/`."""
     root = _root(config)
-    path = _unique_inbox_path(config, root, title)
+    folder = f"{PROJECTS_DIR}/{project_name}" if project_name else INBOX_DIR
+    path = _unique_note_path(config, root, folder, title)
     rel = path.relative_to(root).as_posix()
 
     fm = ["---", f"title: {title.strip()[:200]}", f"captured: {_now_iso()}"]

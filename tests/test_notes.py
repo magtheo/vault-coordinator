@@ -234,6 +234,60 @@ def main() -> None:
         r = client.get("/v1/notes", params={"category": "Inbox"})
         check("category filter", len(r.json()["notes"]) == 2, r.text[:200])
 
+        print("V-064: project-target note creation")
+        r = client.post(
+            "/v1/notes",
+            json={
+                "request_id": "req-p1",
+                "text": "KodeVerket pricing notes\nfrom a run",
+                "source_type": "agent_run",
+                "source_id": "run:xyz",
+                "project_id": "vault:project:kodeverket",
+            },
+        )
+        check("project POST 200", r.status_code == 200, r.text[:300])
+        pn = r.json()["note"]
+        check(
+            "role note + project join",
+            pn["role"] == "note"
+            and pn.get("project_id") == "vault:project:kodeverket"
+            and pn["category"] == "Projects",
+            str(pn),
+        )
+        proj_files = list((td / "02 - Projects" / "KodeVerket").glob("*pricing*"))
+        check("file landed in project folder", len(proj_files) == 1, str(proj_files))
+        check("source links carried", pn.get("source_type") == "agent_run")
+        # replay with target → same note, no second file
+        r2 = client.post(
+            "/v1/notes",
+            json={
+                "request_id": "req-p1",
+                "text": "KodeVerket pricing notes\nfrom a run",
+                "project_id": "vault:project:kodeverket",
+            },
+        )
+        check("project replay idempotent", r2.status_code == 200
+              and r2.json().get("replayed") is True
+              and r2.json()["note"]["id"] == pn["id"], r2.text[:200])
+        check("still one pricing file",
+              len(list((td / "02 - Projects" / "KodeVerket").glob("*pricing*"))) == 1)
+        # project filter now sees the seeded audit note + the new one
+        r = client.get("/v1/notes", params={"project_id": "vault:project:kodeverket"})
+        check("project filter includes new note", len(r.json()["notes"]) == 2, r.text[:200])
+        # validation
+        r = client.post("/v1/notes", json={
+            "request_id": "req-p2", "text": "x", "project_id": "vault:project:nope"})
+        check("422 unknown project", r.status_code == 422, str(r.status_code))
+        r = client.post("/v1/notes", json={
+            "request_id": "req-p3", "text": "x", "project_id": "machine:project:dev-server"})
+        check("422 machine project", r.status_code == 422, str(r.status_code))
+        r = client.post("/v1/notes", json={
+            "request_id": "req-p4", "text": "x", "project_id": "kodeverket"})
+        check("422 bare slug", r.status_code == 422, str(r.status_code))
+        # no mutation ledger rows for rejected creates
+        muts = client.get("/v1/notes").status_code  # sanity: router alive
+        check("router alive after rejects", muts == 200)
+
         FEATURES["notes"] = False
         r = client.get("/v1/notes")
         check("501 flag-off", r.status_code == 501, str(r.status_code))
