@@ -89,3 +89,8 @@
 - Config: `workspaces: {roots: [~/Documents/repos], deny: [main, main-localtest]}` (stray clones denied); `FEATURES["workspaces"]=True`
 - Discovery on the real tree: 18 workspaces (2 config + 16 discovered)
 - Tests: tests/test_workspaces.py 26 checks — slugify, git-detection (dir/file/nongit), depth-1 boundary, dotdir skip, deny, root-order collision, root-wins vs config merge, missing-root warning, sorted output. Suite **318 green** (292+26)
+
+### V-061b — workspace_selection capability flag (T-022c follow-up, 2026-08-25)
+- `BackendCapabilities.workspace_selection: bool = False` (src/agents/port.py) — advertises whether a backend accepts a workspace ref at dispatch; drives the app-side workspace picker. opencode → True (dispatch resolves ref→dir via registry-fed project_dirs); warren → False (binds projects via its own project_registration instead)
+- Backward-compatible on both ends: old servers omit the key → client decodes default false; old clients ignore the extra field
+- Tests: test_agents_port extended (flag present, per-backend values). Suite **318 green** (13 modules, SUITE_DONE files=13 failed=0)
