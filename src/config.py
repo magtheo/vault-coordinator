@@ -185,6 +185,20 @@ class AgentsConfig(BaseModel):
     notify_ntfy: bool = True
 
 
+class WorkspacesConfig(BaseModel):
+    """T-022c: workspace registry — repo picker for agents (and later chat).
+
+    Autodiscovery scans each root's immediate children for git repos once
+    per process (restart-only refresh, by design). agents.projects entries
+    with an opencode_directory are always explicit members and win ref
+    collisions. ``deny`` lists refs (slug form, e.g. "kompakt-interface")
+    to exclude from discovery.
+    """
+
+    roots: list[str] = []
+    deny: list[str] = []
+
+
 class AppConfig(BaseModel):
     coordinator: CoordinatorConfig
     vikunja: VikunjaConfig
@@ -200,6 +214,7 @@ class AppConfig(BaseModel):
     chat: ChatConfig = ChatConfig()
     voice: VoiceConfig = VoiceConfig()
     agents: AgentsConfig = AgentsConfig()
+    workspaces: WorkspacesConfig = WorkspacesConfig()
     auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300
 

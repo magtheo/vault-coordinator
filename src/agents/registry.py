@@ -28,7 +28,11 @@ class UnknownBackend(Exception):
 
 
 class AgentBackendRegistry:
-    def __init__(self, cfg: "AgentsConfig") -> None:
+    def __init__(
+        self,
+        cfg: "AgentsConfig",
+        workspaces: "list | None" = None,
+    ) -> None:
         self._cfg = cfg
         self._backends: dict[str, AgentBackend] = {}
         if cfg.warren.enabled:
@@ -42,6 +46,11 @@ class AgentBackendRegistry:
                 for repo_id, m in cfg.projects.items()
                 if m.opencode_directory
             }
+            # T-022c: discovered workspaces join the ref→dir map. setdefault
+            # keeps config directories VERBATIM — the adapter's _dir_to_ref
+            # matches raw strings, and OpenCode echoes back what we send.
+            for ws in workspaces or []:
+                project_dirs.setdefault(ws.ref, ws.directory)
             self._backends["opencode"] = OpenCodeBackend(
                 base_url=cfg.opencode.base_url,
                 provider_id=cfg.opencode.provider_id,
@@ -129,9 +138,9 @@ class AgentBackendRegistry:
 _registry: AgentBackendRegistry | None = None
 
 
-def build_registry(cfg: "AgentsConfig") -> AgentBackendRegistry:
+def build_registry(cfg: "AgentsConfig", workspaces: "list | None" = None) -> AgentBackendRegistry:
     global _registry
-    _registry = AgentBackendRegistry(cfg)
+    _registry = AgentBackendRegistry(cfg, workspaces)
     return _registry
 
 

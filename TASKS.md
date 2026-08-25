@@ -82,3 +82,10 @@
 - Config: 13-bucket registry draft (9 projects + 4 areas) in config.yaml — pending user review of aliases/keywords
 - Tests: 44 new checks; suite 292 green. Live E2E: capture → scratchpad → tidy (real LLM) → bucket files + clean scratchpad + single commit `5e66196`; validator rejections fell back verbatim as designed
 - Merge `b353e66`; latency note: tidy is sequential per section (~10 s each) — batch optimization deferred
+
+### V-061 — workspaces registry (T-022c server leg, 2026-08-25)
+- `src/workspaces.py`: workspace = git checkout addressable by ref for agent dispatch (and later chat scopes, T-022d). Registry merges `agents.projects` entries carrying `opencode_directory` (config wins collisions, dirs stay verbatim) with depth-1 autodiscovery of configured roots (`workspaces.roots`): child dirs containing `.git` (dir OR file — worktrees count), dotdirs skipped, first root wins, deny list by slug ref. Restart-only refresh by design. Security: only configured roots scanned (never `~`). Wire: `GET /v1/workspaces` → `{workspaces: [{ref, label}], default: null}` — paths never cross the wire (D023)
+- `AgentBackendRegistry` takes the workspace list; discovered refs join the opencode adapter's `project_dirs` via setdefault → dispatch with a discovered ref resolves to its directory
+- Config: `workspaces: {roots: [~/Documents/repos], deny: [main, main-localtest]}` (stray clones denied); `FEATURES["workspaces"]=True`
+- Discovery on the real tree: 18 workspaces (2 config + 16 discovered)
+- Tests: tests/test_workspaces.py 26 checks — slugify, git-detection (dir/file/nongit), depth-1 boundary, dotdir skip, deny, root-order collision, root-wins vs config merge, missing-root warning, sorted output. Suite **318 green** (292+26)
