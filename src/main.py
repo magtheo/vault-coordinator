@@ -73,8 +73,16 @@ async def lifespan(app: FastAPI):
     from src.agents.registry import build_registry
     from src.routers import v1 as _v1
 
+    # Workspaces (T-022c): repo registry for agent/chat scope selection.
+    # Built unconditionally (discovery is config-only, no backend deps);
+    # discovered refs join the opencode adapter's project_dirs.
+    from src.workspaces import build_workspaces, set_workspaces
+
+    workspaces = build_workspaces(config)
+    set_workspaces(workspaces)
+
     if getattr(config, "agents", None) and config.agents.enabled:
-        registry = build_registry(config.agents)
+        registry = build_registry(config.agents, workspaces)
         if registry.available():
             app.state.agent_registry = registry
             _v1.FEATURES["agents"] = True

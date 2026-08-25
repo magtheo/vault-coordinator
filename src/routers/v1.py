@@ -47,6 +47,7 @@ from src.notes import NoteNotFound as _NoteNotFound
 from src import notes_sorter as _notes_sorter
 from src.voice import AudioDecodeError, probe_duration_s, transcribe_file
 from src.routers.projects_overview import _machines
+from src.workspaces import get_workspaces as _get_workspaces
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ FEATURES = {
     "offline_capture": True,  # Phase 6: interpret+commit live; queue-flush safe (request_id replay)
     "enrollment": True,
     "voice_transcription": True,  # Phase 11: /voice/transcribe (V-059, CPU faster-whisper)
+    "workspaces": True,  # T-022c: /workspaces registry (config + autodiscovery)
 }
 
 
@@ -119,6 +121,27 @@ async def status():
         "healthy": True,
         "server_time": _now_iso(),
         "version": "0.1.1",
+    }
+
+
+# ─── Workspaces (T-022c: repo registry for agent dispatch + chat scopes) ─
+
+
+@router.get("/workspaces")
+async def list_workspaces(request: Request):
+    """Reference data — never entity-shaped.
+
+    Paths stay server-side (D023): only ref+label cross the wire.
+    ``default: null`` means "no workspace" (the client renders that
+    absence as the general chat / no-repo dispatch).
+    """
+    require_feature("workspaces")
+    require_capability(request, "agent.read")
+    return {
+        "workspaces": [
+            {"ref": w.ref, "label": w.label} for w in _get_workspaces()
+        ],
+        "default": None,
     }
 
 
