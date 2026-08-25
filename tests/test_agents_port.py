@@ -92,6 +92,7 @@ def test_warren_capabilities_match_w1_evidence():
     assert c.commands is False
     assert c.event_stream is True
     assert c.project_registration is True
+    assert c.workspace_selection is False  # T-022c
 
 
 def test_opencode_capabilities_match_live_instance():
@@ -101,6 +102,7 @@ def test_opencode_capabilities_match_live_instance():
     assert c.commands is True  # /command verified
     assert c.event_stream is True
     assert c.project_registration is False  # directory-bound, no registry
+    assert c.workspace_selection is True  # T-022c: workspace ref at dispatch
 
 
 def test_rule_of_two_has_real_spread():

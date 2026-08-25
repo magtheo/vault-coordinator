@@ -77,6 +77,9 @@ class BackendCapabilities:
     commands: bool  # slash-command surface exposed
     event_stream: bool  # bounded event polling / streaming available
     project_registration: bool  # backend keeps its own project registry
+    # T-022c: backend accepts a workspace (repo) ref at dispatch — the
+    # coordinator resolves ref→directory from the workspaces registry.
+    workspace_selection: bool = False
 
 
 # --------------------------------------------------------------------------

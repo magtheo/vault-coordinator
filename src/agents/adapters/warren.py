@@ -48,6 +48,7 @@ WARREN_CAPABILITIES = BackendCapabilities(
     commands=False,
     event_stream=True,
     project_registration=True,
+    workspace_selection=False,  # warren binds projects via its own registry
 )
 
 # Raw warren states (w-1) → port states. Unknown → FAILED (safe terminal
