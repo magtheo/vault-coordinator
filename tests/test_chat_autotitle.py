@@ -56,7 +56,9 @@ def client_with(td: Path):
         chat=SimpleNamespace(
             base_url="http://stub", api_key=None, model="stub", timeout_s=1,
             max_history=8, system_prompt=None,
-        )
+        ),
+        # T-022d: the send path reads notes.buckets for the propose-chip.
+        notes=SimpleNamespace(buckets=[]),
     )
 
     async def fake_llm(cfg, messages):

@@ -85,6 +85,7 @@ class ChatConfig(BaseModel):
     timeout_s: float = 90.0
     max_history: int = 20
     system_prompt: str = ""         # empty → src.llm.DEFAULT_SYSTEM_PROMPT
+    workspace_timeout_s: float = 180.0  # V-063: settle ceiling for workspace turns
 
 
 class VoiceConfig(BaseModel):

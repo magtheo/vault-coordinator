@@ -40,7 +40,17 @@ from src.capture import interpret as _interpret_text
 from src.database import get_db
 from src.llm import LlmConfig, chat_completion
 from src.models import complete_mutation, record_mutation, upsert_entity
+from dataclasses import replace as _dc_replace
 from src import notes as notes_core
+from src.agents.adapters.opencode import SessionBusyError as _SessionBusyError
+from src.agents.registry import get_registry as _get_agent_registry
+from src.chat_scopes import chat_topics as _chat_topics
+from src.chat_scopes import propose_topic as _propose_topic
+from src.chat_scopes import scope_label as _scope_label
+from src.chat_scopes import seeded_system_prompt as _seeded_system_prompt
+from src.chat_scopes import validate_scope as _validate_scope
+from src.chat_workspace import auto_commit as _ws_auto_commit
+from src.chat_workspace import wait_for_turn as _ws_wait_for_turn
 from src.notes import ChecksumMismatch as _NoteChecksumMismatch
 from src.notes import NoteError as _NoteError
 from src.notes import NoteNotFound as _NoteNotFound
@@ -143,6 +153,21 @@ async def list_workspaces(request: Request):
         ],
         "default": None,
     }
+
+
+# ─── Chat topics (T-022d: topic registry = sorter buckets) ────────────
+
+
+@router.get("/chat/topics")
+async def list_chat_topics(request: Request):
+    """Reference data for the topic picker + propose-chip labels.
+
+    Topics ARE the notes sorter's bucket registry — one source of truth
+    (anti-bloat). Empty registry → empty list (honest cold start).
+    """
+    require_feature("chat")
+    require_capability(request, "chat.read")
+    return {"topics": _chat_topics(request.app.state.config)}
 
 
 # ─── Tasks (Vikunja + repo TODOs; upstreams are authoritative) ────────
@@ -688,7 +713,7 @@ async def list_chats(request: Request, db=Depends(get_db)):
     threads = db.execute(
         "SELECT * FROM chat_threads ORDER BY updated_at DESC"
     ).fetchall()
-    return {"chats": [_wire_thread(t, db) for t in threads]}
+    return {"chats": [_wire_thread(t, db, request.app.state.config) for t in threads]}
 
 
 @router.get("/chats/{chat_id}")
@@ -700,15 +725,23 @@ async def get_chat(chat_id: str, request: Request, db=Depends(get_db)):
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="chat not found")
-    return {"chat": _wire_thread(row, db)}
+    return {"chat": _wire_thread(row, db, request.app.state.config)}
 
 
 @router.get("/chats/{chat_id}/messages")
 async def list_chat_messages(chat_id: str, request: Request, db=Depends(get_db)):
     require_feature("chat")
     require_capability(request, "chat.read")
-    if _thread_row(db, chat_id) is None:
+    thread = _thread_row(db, chat_id)
+    if thread is None:
         raise HTTPException(status_code=404, detail="chat not found")
+    if thread["scope_type"] == "workspace" and thread["pending_turn"]:
+        # V-063 catch-up: a timed-out turn may have settled since — pull
+        # its reply in before rendering (never blocks on a running turn).
+        try:
+            await _workspace_catch_up(db, chat_id, thread, _opencode_backend())
+        except Exception as exc:  # noqa: BLE001 — listing must survive
+            log.warning("workspace catch-up on messages GET failed: %s", exc)
     rows = db.execute(
         "SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at, id",
         (chat_id,),
@@ -721,6 +754,9 @@ class ChatCreateRequest(BaseModel):
     title: str
     project_id: str | None = None
     is_temporary: bool = False
+    # T-022d: optional scope at creation (topic picker). Both null = general.
+    scope_type: str | None = None
+    scope_ref: str | None = None
 
 
 @router.post("/chats")
@@ -730,6 +766,11 @@ async def create_chat(req: ChatCreateRequest, request: Request, db=Depends(get_d
     require_capability(request, "chat.write")
     if not req.title.strip():
         raise HTTPException(status_code=422, detail="title must not be empty")
+    if req.scope_type is not None or req.scope_ref is not None:
+        try:
+            _validate_scope(request.app.state.config, req.scope_type, req.scope_ref)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
     prior = db.execute(
         "SELECT * FROM mutations WHERE id = ?", (req.request_id,)
@@ -747,13 +788,22 @@ async def create_chat(req: ChatCreateRequest, request: Request, db=Depends(get_d
     chat_id = f"chat:{uuid4()}"
     now = _now_iso()
     db.execute(
-        "INSERT INTO chat_threads (id, title, project_id, is_temporary, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (chat_id, req.title.strip(), req.project_id, int(req.is_temporary), now, now),
+        "INSERT INTO chat_threads (id, title, project_id, is_temporary, scope_type, scope_ref, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            chat_id,
+            req.title.strip(),
+            req.project_id,
+            int(req.is_temporary),
+            req.scope_type,
+            req.scope_ref,
+            now,
+            now,
+        ),
     )
     db.commit()
     row = _thread_row(db, chat_id)
-    result = {"chat": _wire_thread(row, db)}
+    result = {"chat": _wire_thread(row, db, request.app.state.config)}
     complete_mutation(db, req.request_id, True, result)
     return result
 
@@ -826,6 +876,34 @@ async def send_chat_message(
     _maybe_autotitle(db, chat_id, req.text)
 
     cfg = _chat_llm_config(request)
+    thread = _thread_row(db, chat_id)
+    proposed = None
+    if thread["scope_type"] == "topic":
+        # T-022d: vault bucket seed — file read at SEND time (authoritative).
+        cfg = _dc_replace(
+            cfg,
+            system_prompt=_seeded_system_prompt(
+                request.app.state.config, thread["scope_ref"]
+            ),
+        )
+    elif thread["scope_type"] is None:
+        # T-022d: deterministic proposal for the chip — NEVER auto-applied,
+        # NEVER a workspace (repos are an explicit user choice only).
+        proposed = _propose_topic(req.text, request.app.state.config.notes.buckets)
+
+    if thread["scope_type"] == "workspace":
+        # V-063: workspace tier — OpenCode session, not the Hermes LLM.
+        # Same result contract as the LLM tiers (message + assistant_message)
+        # plus a small workspace block; the phone renders both identically.
+        ws_outcome = await _workspace_send(db, request, chat_id, thread, req.text.strip())
+        result = {
+            "message": _wire_message(user_msg),
+            "assistant_message": ws_outcome["assistant_message"],
+            "workspace": ws_outcome["workspace"],
+        }
+        complete_mutation(db, req.request_id, True, result)
+        return result
+
     history = db.execute(
         "SELECT role, content FROM chat_messages WHERE chat_id = ?"
         " ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -844,8 +922,186 @@ async def send_chat_message(
     _touch_thread(db, chat_id)
 
     result = {"message": _wire_message(user_msg), "assistant_message": _wire_message(assistant_msg)}
+    if proposed is not None:
+        result["proposed_topic"] = proposed
     complete_mutation(db, req.request_id, True, result)
     return result
+
+
+class ChatScopeRequest(BaseModel):
+    request_id: str
+    # The ONLY re-scoping path (T-022d) — propose-chip Apply, topic picker
+    # changes, and un-scope→general all land here. Explicit user action;
+    # scope_type null (default) clears the scope.
+    scope_type: str | None = None
+    scope_ref: str | None = None
+
+
+@router.post("/chats/{chat_id}/scope")
+async def set_chat_scope(
+    chat_id: str, req: ChatScopeRequest, request: Request, db=Depends(get_db)
+):
+    """Apply or clear a chat scope. Idempotent per request_id (§11)."""
+    require_feature("chat")
+    require_capability(request, "chat.write")
+    if _thread_row(db, chat_id) is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+    if req.scope_type is not None or req.scope_ref is not None:
+        try:
+            _validate_scope(request.app.state.config, req.scope_type, req.scope_ref)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+    prior = db.execute(
+        "SELECT * FROM mutations WHERE id = ?", (req.request_id,)
+    ).fetchone()
+    if prior is not None:
+        if prior["status"] == "confirmed" and prior["result"]:
+            return {"replayed": True, **json.loads(prior["result"])}
+        if prior["status"] == "pending":
+            raise HTTPException(status_code=409, detail="request already in flight")
+        db.execute("DELETE FROM mutations WHERE id = ?", (req.request_id,))
+        db.commit()
+
+    record_mutation(db, req.request_id, chat_id, "chat.scope", req.model_dump())
+    db.execute(
+        "UPDATE chat_threads SET scope_type = ?, scope_ref = ? WHERE id = ?",
+        (req.scope_type, req.scope_ref, chat_id),
+    )
+    _touch_thread(db, chat_id)
+    row = _thread_row(db, chat_id)
+    result = {"chat": _wire_thread(row, db, request.app.state.config)}
+    complete_mutation(db, req.request_id, True, result)
+    return result
+
+
+# ─── Workspace tier plumbing (V-063) ──────────────────────────────────
+# Chat ≠ agent: workspace turns drive the OpenCode adapter directly —
+# no agent_executions row, so the watcher/alert loop never fires.
+
+
+def _opencode_backend():
+    reg = _get_agent_registry()
+    if reg is None or "opencode" not in reg.available():
+        raise HTTPException(
+            status_code=503, detail="workspace chats require the opencode backend"
+        )
+    return reg.get("opencode")
+
+
+def _workspace_dir(ref: str) -> str | None:
+    for ws in _get_workspaces():
+        if ws.ref == ref:
+            return ws.directory
+    log.warning("workspace dir not found for ref %s — auto-commit skipped", ref)
+    return None
+
+
+async def _workspace_catch_up(db, chat_id: str, thread, backend) -> str:
+    """Backfill a turn that settled after its budget. Returns:
+    "backfilled" (reply recorded + committed), "still-pending" (turn
+    genuinely still running — callers must not race a concurrent send),
+    or "none" (nothing to do)."""
+    if not thread["pending_turn"] or not thread["agent_execution_id"]:
+        return "none"
+    exec_id = thread["agent_execution_id"]
+    execution = await backend.get(exec_id)
+    if execution.state.value == "running":
+        return "still-pending"
+    reply = (await backend.result(exec_id)).summary
+    if not reply or reply == "(no assistant message yet)":
+        return "still-pending"  # placeholder only — turn has not landed
+    db.execute(
+        "UPDATE chat_threads SET pending_turn = 0 WHERE id = ?", (chat_id,)
+    )
+    db.commit()
+    _insert_message(db, chat_id, "assistant", reply)
+    _touch_thread(db, chat_id)
+    directory = _workspace_dir(thread["scope_ref"])
+    if directory:
+        _ws_auto_commit(directory, thread["title"])
+    return "backfilled"
+
+
+async def _workspace_send(db, request, chat_id: str, thread, text: str) -> dict:
+    """One workspace-chat turn: catch up any pending reply, dispatch or
+    resume the OpenCode session, settle within chat.workspace_timeout_s,
+    record the reply, auto-commit. Degrades with honest notes — the user
+    message is already durable; a git/opencode problem must never fail
+    the request (mirrors the LLM-failure policy)."""
+    config = request.app.state.config
+    try:
+        backend = _opencode_backend()
+    except HTTPException:
+        note = "(workspace backend unavailable — message saved, try again next message)"
+        return {
+            "assistant_message": _wire_message(_insert_message(db, chat_id, "assistant", note)),
+            "workspace": {"state": "unavailable"},
+        }
+    _touch_thread(db, chat_id)
+
+    if await _workspace_catch_up(db, chat_id, thread, backend) == "still-pending":
+        note = "(workspace turn still running — message saved, it will be answered after this turn)"
+        return {
+            "assistant_message": _wire_message(_insert_message(db, chat_id, "assistant", note)),
+            "workspace": {"state": "busy"},
+        }
+
+    exec_id = thread["agent_execution_id"]
+    try:
+        if exec_id:
+            await backend.send(exec_id, text)
+        else:
+            execution = await backend.dispatch(text, agent="general", project_ref=thread["scope_ref"])
+            exec_id = execution.id
+            db.execute(
+                "UPDATE chat_threads SET agent_execution_id = ? WHERE id = ?",
+                (exec_id, chat_id),
+            )
+            db.commit()
+    except _SessionBusyError:
+        note = "(workspace turn still running — message saved, it will be answered after this turn)"
+        return {
+            "assistant_message": _wire_message(_insert_message(db, chat_id, "assistant", note)),
+            "workspace": {"state": "busy", "execution_id": exec_id},
+        }
+    except Exception as exc:  # noqa: BLE001 — degrade, never fail the send
+        log.warning("workspace chat dispatch/send failed: %s", exc)
+        note = "(workspace backend error — message saved, try again next message)"
+        return {
+            "assistant_message": _wire_message(_insert_message(db, chat_id, "assistant", note)),
+            "workspace": {"state": "error"},
+        }
+
+    settled = await _ws_wait_for_turn(backend, exec_id, config.chat.workspace_timeout_s)
+    reply = None
+    if settled:
+        candidate = (await backend.result(exec_id)).summary
+        if candidate and candidate != "(no assistant message yet)":
+            reply = candidate
+    if reply is None:
+        db.execute("UPDATE chat_threads SET pending_turn = 1 WHERE id = ?", (chat_id,))
+        db.commit()
+        note = "(workspace turn still running — reply will be recorded when it settles)"
+        return {
+            "assistant_message": _wire_message(_insert_message(db, chat_id, "assistant", note)),
+            "workspace": {"state": "pending", "execution_id": exec_id},
+        }
+
+    db.execute("UPDATE chat_threads SET pending_turn = 0 WHERE id = ?", (chat_id,))
+    db.commit()
+    assistant_msg = _insert_message(db, chat_id, "assistant", reply)
+    _touch_thread(db, chat_id)
+    directory = _workspace_dir(thread["scope_ref"])
+    committed = _ws_auto_commit(directory, thread["title"]) if directory else False
+    return {
+        "assistant_message": _wire_message(assistant_msg),
+        "workspace": {
+            "state": "settled",
+            "execution_id": exec_id,
+            "committed": committed,
+        },
+    }
 
 
 class ChatTruncateRequest(BaseModel):
@@ -952,7 +1208,7 @@ def _last_message_preview(db, chat_id: str) -> str | None:
     return text[:120]
 
 
-def _wire_thread(row, db) -> dict:
+def _wire_thread(row, db, config=None) -> dict:
     return {
         "id": row["id"],
         "title": row["title"],
@@ -961,6 +1217,14 @@ def _wire_thread(row, db) -> dict:
         "revision": row["revision"],
         "project_id": row["project_id"],
         "is_temporary": bool(row["is_temporary"]),
+        "scope_type": row["scope_type"],
+        "scope_ref": row["scope_ref"],
+        "scope_label": (
+            _scope_label(config, row["scope_type"], row["scope_ref"])
+            if config is not None
+            else None
+        ),
+        "pending_reply": bool(row["pending_turn"]),
         "last_message_preview": _last_message_preview(db, row["id"]),
     }
 

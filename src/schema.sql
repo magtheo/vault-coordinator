@@ -153,6 +153,10 @@ CREATE TABLE IF NOT EXISTS chat_threads (
     title TEXT NOT NULL,
     project_id TEXT,
     is_temporary INTEGER NOT NULL DEFAULT 0,
+    scope_type TEXT CHECK (scope_type IN ('topic', 'workspace')),
+    scope_ref TEXT,
+    agent_execution_id TEXT,          -- V-063: OpenCode session id
+    pending_turn INTEGER NOT NULL DEFAULT 0,  -- V-063: turn settled, reply unrecorded
     revision INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
