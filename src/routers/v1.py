@@ -1429,15 +1429,23 @@ async def capture_interpret(req: InterpretRequest, request: Request):
         raise HTTPException(status_code=422, detail="text must not be empty")
     proposal = _interpret_text(req.text)
     if proposal.get("proposed_type") == "event":
-        # V-065c: default target = first writable registry calendar
-        # ("personal"); the confirm UI can change it before commit.
+        # V-065c: default target per plan = "personal" — the task time-block
+        # calendar is system-coupled (X-VAULT-BLOCK-ID) and must not receive
+        # user events, even though it is first-writable in the derived
+        # registry ordering. Prefer personal, then any non-time-block
+        # writable, then anything writable.
         from src.calendars import effective_calendars
 
         writable = [
-            e.id for e in effective_calendars(request.app.state.config) if e.writable
+            e for e in effective_calendars(request.app.state.config) if e.writable
         ]
         if writable:
-            proposal["calendar_id"] = writable[0]
+            preferred = (
+                next((e for e in writable if e.id == "personal"), None)
+                or next((e for e in writable if e.id != "time-blocks"), None)
+                or writable[0]
+            )
+            proposal["calendar_id"] = preferred.id
     return proposal
 
 

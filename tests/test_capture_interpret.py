@@ -178,10 +178,14 @@ def run_wire() -> int:
         app = FastAPI()
         app.include_router(v1_router.router, prefix="/v1")
         app.state.config = SimpleNamespace(calendars=[
-            CalendarEntry(id="sa", collection="sa", display_name="SA",
-                          writable=False),          # read-only comes FIRST
+            # mirrors the live derived ordering: time-blocks is FIRST-writable
+            # but is system-coupled — capture events must prefer "personal"
+            CalendarEntry(id="time-blocks", collection="vault-time-blocks",
+                          display_name="Vault Time Blocks", writable=True),
             CalendarEntry(id="personal", collection="personal",
                           display_name="Personal", writable=True),
+            CalendarEntry(id="sa", collection="sa", display_name="SA",
+                          writable=False),
         ])
         if capabilities is not None:
             @app.middleware("http")
@@ -199,7 +203,7 @@ def run_wire() -> int:
     checks = [
         ("200 on event text", ok, f"got {r.status_code}: {r.text[:120]}"),
         ("proposed_type event", body.get("proposed_type") == "event", ""),
-        ("calendar_id overridden to first WRITABLE (skips sa)",
+        ("calendar_id prefers personal over first-writable time-blocks",
          body.get("calendar_id") == "personal", f"got {body.get('calendar_id')!r}"),
         ("additive fields present",
          all(k in body for k in ("start_at", "end_at", "all_day")), ""),
