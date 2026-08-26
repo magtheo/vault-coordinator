@@ -218,73 +218,6 @@ async def schedule(req: ScheduleRequest, request: Request, db=Depends(get_db)):
     return response_data
 
 
-async def _parse_raw_events(db, raw_events: list[dict]) -> list[dict]:
-    """Parse Radicale REPORT results into structured event dicts."""
-    from icalendar import Calendar
-    from src.models import get_relationship_by_event_uid
-
-    events = []
-    for raw in raw_events:
-        ical_text = raw.get("ical", "")
-        try:
-            cal = Calendar.from_ical(ical_text)
-            for component in cal.walk("VEVENT"):
-                uid = str(component.get("uid", ""))
-                summary = str(component.get("summary", ""))
-                dtstart = component.get("dtstart")
-                dtend = component.get("dtend")
-
-                start_str = None
-                end_str = None
-                if dtstart:
-                    start_str = (
-                        dtstart.dt.isoformat()
-                        if hasattr(dtstart.dt, "isoformat")
-                        else str(dtstart.dt)
-                    )
-                if dtend:
-                    end_str = (
-                        dtend.dt.isoformat()
-                        if hasattr(dtend.dt, "isoformat")
-                        else str(dtend.dt)
-                    )
-
-                # Try to find linked relationship
-                linked_alias = None
-                linked_title = None
-                if uid:
-                    rel = get_relationship_by_event_uid(db, uid)
-                    if rel:
-                        target_id = rel.get("target_id")
-                        if target_id:
-                            target = db.execute(
-                                "SELECT external_alias, display_name FROM entities WHERE id = ?",
-                                (target_id,),
-                            ).fetchone()
-                            if target:
-                                linked_alias = target["external_alias"]
-                                linked_title = target["display_name"]
-
-                vault_block_id = ""
-                x_prop = component.get("x-vault-block-id")
-                if x_prop:
-                    vault_block_id = str(x_prop)
-
-                events.append({
-                    "uid": uid,
-                    "summary": summary,
-                    "start": start_str,
-                    "end": end_str,
-                    "vault_block_id": vault_block_id,
-                    "linked_alias": linked_alias,
-                    "linked_title": linked_title,
-                })
-        except Exception:
-            continue
-    events.sort(key=lambda e: e["start"] or "")
-    return events
-
-
 @router.get("/schedule/range")
 async def schedule_range(
     from_: str = Query(..., alias="from", description="ISO date, e.g. 2026-08-01"),
@@ -292,52 +225,29 @@ async def schedule_range(
     request: Request = None,
     db=Depends(get_db),
 ):
-    """Events in an inclusive date range (local server timezone)."""
-    config = request.app.state.config
-    cal_config = config.radicale
+    """Events from every registry calendar in an inclusive date range (V-065a)."""
+    from src.calendars import fetch_events_window, parse_window
 
-    start = datetime.fromisoformat(from_).replace(
-        hour=0, minute=0, second=0, tzinfo=timezone.utc
-    )
-    end = datetime.fromisoformat(to_).replace(
-        hour=23, minute=59, second=59, tzinfo=timezone.utc
-    )
-
-    from src.adapters.radicale import get_events_range
-
-    raw_events = await get_events_range(
-        cal_config.url,
-        cal_config.username,
-        cal_config.password,
-        cal_config.calendar,
-        start,
-        end,
-    )
-    events = await _parse_raw_events(db, raw_events)
+    try:
+        start, end = parse_window(from_, to_)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    events = await fetch_events_window(request.app.state.config, db, start, end)
     return {"from": from_, "to": to_, "events": events}
 
 
 @router.get("/schedule/today")
 async def todays_schedule(request: Request, db=Depends(get_db)):
-    """Get today's scheduled time blocks from Radicale.
-    Returns structured JSON with parsed event data + relationship info.
-    """
+    """Today's events from every registry calendar (V-065a fan-out)."""
+    from src.calendars import fetch_events_window
+
     config = request.app.state.config
-    cal_config = config.radicale
-
     now = datetime.now(timezone.utc)
-    from src.adapters.radicale import get_events_range
-
-    raw_events = await get_events_range(
-        cal_config.url,
-        cal_config.username,
-        cal_config.password,
-        cal_config.calendar,
-        now,
-        now,
+    events = await fetch_events_window(
+        config, db,
+        now.replace(hour=0, minute=0, second=0, microsecond=0),
+        now.replace(hour=23, minute=59, second=59, microsecond=0),
     )
-
-    events = await _parse_raw_events(db, raw_events)
     return {"events": events, "date": now.date().isoformat()}
 
 

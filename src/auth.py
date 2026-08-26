@@ -52,6 +52,10 @@ DEFAULT_DEVICE_CAPABILITIES = [
     # Phase 11: upload one explicit clip → transcript. No writes; the
     # transcript only becomes an object via explicit user transitions.
     "voice.transcribe",
+    # V-065: calendar reads (registry + multi-collection windows) and
+    # event CRUD (per-calendar writability is enforced server-side).
+    "calendar.read",
+    "calendar.write",
 ]
 
 VALID_TRUST_CLASSES = {"low", "medium", "admin"}

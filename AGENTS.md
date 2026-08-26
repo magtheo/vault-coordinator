@@ -10,7 +10,7 @@ Integration platform connecting external task systems (Vikunja, Git repos) with 
 2. **Entities are cached observations.** External entities in the DB are read-only projections. To change task state, send a command to the owning system.
 3. **VEVENT UID is the primary link.** `X-VAULT-BLOCK-ID` is a recovery hint, not the sole link.
 4. **Scheduling is idempotent.** Client-generated `request_id` + deterministic event UID. Retries return the existing block.
-5. **Dedicated calendar.** Coordinator writes only to "Vault Time Blocks." Personal events are never touched.
+5. **Registry-scoped writes.** The coordinator writes ONLY to calendars marked `writable: true` in the registry (Vault Time Blocks + personal). Read-only replicas (e.g. SA) are never written — the API enforces this (403), not convention.
 
 ## Architecture Reference
 
