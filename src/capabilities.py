@@ -22,7 +22,7 @@ _CAPABILITIES: dict[str, set[str]] = {
         "schedule",
         "open_source",
     },
-    "calendar_event": set(),  # events are managed through schedule endpoints
+    "calendar_event": set(),  # managed via /api/schedule + /v1/events (registry-gated)
     "project": set(),
 }
 
