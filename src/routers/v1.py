@@ -1427,7 +1427,18 @@ async def capture_interpret(req: InterpretRequest, request: Request):
     require_capability(request, "capture.interpret")
     if not req.text.strip():
         raise HTTPException(status_code=422, detail="text must not be empty")
-    return _interpret_text(req.text)
+    proposal = _interpret_text(req.text)
+    if proposal.get("proposed_type") == "event":
+        # V-065c: default target = first writable registry calendar
+        # ("personal"); the confirm UI can change it before commit.
+        from src.calendars import effective_calendars
+
+        writable = [
+            e.id for e in effective_calendars(request.app.state.config) if e.writable
+        ]
+        if writable:
+            proposal["calendar_id"] = writable[0]
+    return proposal
 
 
 @router.post("/capture/commit")

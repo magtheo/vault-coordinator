@@ -22,11 +22,22 @@ for misparses):
 - Due instants are anchored at 12:00 UTC when no time is given (noon
   keeps the calendar date stable for the owner's timezone; the client
   buckets by date, and a midnight anchor would shift a day for UTC+2).
+- Events (V-065c): a leading "avtale / møte / event / meeting" prefix
+  proposes an event — explicit intent only, nothing is silently
+  re-typed ("tannlege tirsdag 12:30" without a prefix stays a task).
+  Parsed on top of the date machinery: time-of-day ("kl 14"), ranges
+  ("14–16", "14.30-16.00"), duration suffixes ("30m", "1t", "1h",
+  "2 timer"). Event times are Europe/Oslo local (what the speaker
+  means), converted to UTC on the wire — NOT the task path's
+  UTC-literal anchoring. Date without a time → all-day proposal.
+  end_at null = duration unknown; the confirm UI sets it. Commits go
+  through POST /v1/events (idempotent), not /capture/commit.
 """
 from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 _WEEKDAYS_EN = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 _WEEKDAYS_NO = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag"]
@@ -50,10 +61,28 @@ _MONTH_RE = (
     r"jan|feb|mar|apr|jun|jul|aug|sep|okt|oct|nov|des|dec)\.?"
 )
 
-_NOTE_PREFIX = re.compile(r"^\s*(?:note|notat)\s*[:\-\u2013]\s*", re.IGNORECASE)
+_NOTE_PREFIX = re.compile(r"^\s*(?:note|notat)\s*[:\-–]\s*", re.IGNORECASE)
+_EVENT_PREFIX = re.compile(
+    # separator must be followed by whitespace — "møte-klargjøring" is a
+    # compound word, not a prefix + title
+    r"^\s*(?:avtale|møte|event|meeting)\b(?:\s*[:\-–]\s+|\s+)", re.IGNORECASE
+)
 _TIME_RE = re.compile(
     r"\b(?:at|kl\.?|klokken)\s*(\d{1,2})(?:[:.](\d{2}))?\b", re.IGNORECASE
 )
+# "14–16", "14.30-16.00" — en/em dash or hyphen, optional minutes, optional
+# leading kl/at. Guarded against "2-3 dager/weeks" (those are quantities,
+# not clock ranges).
+_RANGE_RE = re.compile(
+    r"\b(?:kl\.?\s+|klokken\s+|at\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*[–—-]\s*"
+    r"(\d{1,2})(?:[:.](\d{2}))?(?!\s*(?:dager|days|uker|weeks|måneder|months|år|years))\b"
+)
+# "30m", "30 min", "1t", "1 time", "2 timer", "1h", "2 hours" (events only)
+_DURATION_RE = re.compile(
+    r"\b(\d{1,3})\s*(minutter|min|m|timer|time|t|h|hours?|hrs?)\b", re.IGNORECASE
+)
+
+_OSLO = ZoneInfo("Europe/Oslo")
 
 _DATE_PATTERNS: list[tuple[re.Pattern, str]] = [
     # relative multi-word first (longest first within each group)
@@ -179,6 +208,11 @@ def interpret(text: str, now: datetime | None = None) -> dict:
     if note_prefix:
         proposed_type = "note"
         working = working[note_prefix.end():]
+    else:
+        event_prefix = _EVENT_PREFIX.match(working)
+        if event_prefix:
+            proposed_type = "event"
+            working = working[event_prefix.end():]
 
     # date: leftmost match across all patterns wins
     best: tuple[int, re.Match, re.Pattern, str] | None = None
@@ -201,6 +235,9 @@ def interpret(text: str, now: datetime | None = None) -> dict:
         date = _resolve_date(kind, m, now)
         working = working[: m.start()] + " " + working[m.end():]
 
+    if proposed_type == "event":
+        return _event_proposal(raw, working, date, now)
+
     # time refines the date (or defaults to today)
     tm = _TIME_RE.search(working)
     hour = minute = None
@@ -215,7 +252,7 @@ def interpret(text: str, now: datetime | None = None) -> dict:
                 date = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     due_at = None
-    if date is not None and proposed_type == "task":
+    if date is not None:
         h, mi = (hour, minute) if hour is not None else (12, 0)
         due_at = date.replace(hour=h, minute=mi, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -230,4 +267,84 @@ def interpret(text: str, now: datetime | None = None) -> dict:
         "due_at": due_at,
         "project_id": None,
         "area_id": None,
+    }
+
+
+def _oslo_to_utc(local: datetime) -> datetime:
+    """Event clock times are what the speaker means: Europe/Oslo → UTC."""
+    return local.replace(tzinfo=_OSLO).astimezone(timezone.utc)
+
+
+def _event_proposal(raw: str, working: str, date: datetime | None, now: datetime) -> dict:
+    """Event branch of interpret(): range → single time → duration.
+
+    Event clock times are Oslo local (converted to UTC), unlike the task
+    path's 12:00-UTC date anchoring — a spoken "kl 14" is 14:00 where the
+    user stands, not 14:00Z.
+    """
+    start: datetime | None = None
+    end: datetime | None = None
+    all_day = False
+
+    rm = _RANGE_RE.search(working)
+    if rm:
+        h1, m1 = int(rm.group(1)), int(rm.group(2) or 0)
+        h2, m2 = int(rm.group(3)), int(rm.group(4) or 0)
+        if max(h1, h2) <= 23 and max(m1, m2) <= 59:
+            base = date or now.replace(tzinfo=None)
+            start = base.replace(hour=h1, minute=m1, second=0, microsecond=0)
+            end = base.replace(hour=h2, minute=m2, second=0, microsecond=0)
+            if end <= start:  # "22–01" crosses midnight
+                end += timedelta(days=1)
+            working = working[: rm.start()] + " " + working[rm.end():]
+            date = base  # dateless range anchors today, not all-day
+
+    if start is None:
+        tm = _TIME_RE.search(working)
+        if tm:
+            h, mi = int(tm.group(1)), int(tm.group(2) or 0)
+            if h <= 23 and mi <= 59:
+                date = date or now.replace(tzinfo=None)
+                start = date.replace(hour=h, minute=mi, second=0, microsecond=0)
+                working = working[: tm.start()] + " " + working[tm.end():]
+
+    if start is not None and end is None:
+        dm = _DURATION_RE.search(working)
+        if dm:
+            n = int(dm.group(1))
+            unit = dm.group(2).lower()
+            minutes = n * 60 if unit[0] in ("t", "h") else n
+            end = start + timedelta(minutes=minutes)
+            working = working[: dm.start()] + " " + working[dm.end():]
+
+    if start is None and date is not None:
+        all_day = True  # dated but clockless ("møte tirsdag") → all-day proposal
+
+    start_at = None
+    end_at = None
+    if all_day:
+        start_at = date.date().isoformat()
+    elif start is not None:
+        start_at = _oslo_to_utc(start).isoformat().replace("+00:00", "Z")
+        if end is not None:
+            end_at = _oslo_to_utc(end).isoformat().replace("+00:00", "Z")
+
+    title = re.sub(r"\s+", " ", working).strip().strip(" .,;:\-–—").strip()
+    if not title:
+        title = re.sub(r"\s+", " ", raw).strip(" .,;:\-–—")[:80]
+
+    return {
+        "proposed_type": "event",
+        "title": title[:200],
+        "text": raw,
+        "due_at": None,
+        "project_id": None,
+        "area_id": None,
+        # additive event fields (V-065c); calendar default per plan —
+        # the /capture/interpret route overrides with the registry's
+        # first writable calendar
+        "calendar_id": "personal",
+        "start_at": start_at,
+        "end_at": end_at,
+        "all_day": all_day,
     }
