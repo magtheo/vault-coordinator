@@ -500,25 +500,25 @@ def _attention_alerts(request: Request, db) -> list[dict]:
 @router.get("/today")
 async def today(request: Request, db=Depends(get_db)):
     require_capability(request, "today.read")
-    from src.adapters.radicale import get_events_range
-    from src.routers.schedule import _parse_raw_events
+    from src.calendars import fetch_events_window
 
     config = request.app.state.config
-    cal = config.radicale
     now = datetime.now(timezone.utc)
-    raw_events = await get_events_range(
-        cal.url, cal.username, cal.password, cal.calendar,
+    parsed = await fetch_events_window(
+        config, db,
         now.replace(hour=0, minute=0, second=0, microsecond=0),
         now.replace(hour=23, minute=59, second=59, microsecond=0),
     )
-    parsed = await _parse_raw_events(db, raw_events)
     events = [
         {
-            "id": e["uid"],
-            "title": e["summary"],
-            "start_at": _norm_ts(e["start"]),
-            "end_at": _norm_ts(e["end"]),
-            "location": None,
+            "id": e["id"],
+            "title": e["title"],
+            "start_at": e["start_at"],
+            "end_at": e["end_at"],
+            "all_day": e["all_day"],
+            "calendar_id": e["calendar_id"],
+            "symbol": e["symbol"],
+            "location": e["location"],
         }
         for e in parsed
     ]
@@ -565,6 +565,49 @@ async def today(request: Request, db=Depends(get_db)):
         "agent_activity": [],
         "recent_note": None,
     }
+
+
+# ─── Calendars (V-065a — registry + multi-collection reads) ────────────
+
+
+@router.get("/calendars")
+async def list_calendars(request: Request):
+    """The calendars registry: ids, symbols, writability."""
+    require_capability(request, "calendar.read")
+    from src.calendars import effective_calendars
+
+    entries = effective_calendars(request.app.state.config)
+    return {
+        "calendars": [
+            {
+                "id": e.id,
+                "display_name": e.display_name,
+                "symbol": e.symbol,
+                "writable": e.writable,
+            }
+            for e in entries
+        ]
+    }
+
+
+@router.get("/schedule/range")
+async def v1_schedule_range(
+    from_: str = Query(..., alias="from", description="ISO date, e.g. 2026-09-01"),
+    to_: str = Query(..., alias="to", description="ISO date (inclusive), e.g. 2026-09-30"),
+    request: Request = None,
+    db=Depends(get_db),
+):
+    """Events from every registry calendar in an inclusive date window,
+    recurrences expanded, tagged with calendar id + symbol."""
+    require_capability(request, "calendar.read")
+    from src.calendars import fetch_events_window, parse_window
+
+    try:
+        start, end = parse_window(from_, to_)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    events = await fetch_events_window(request.app.state.config, db, start, end)
+    return {"from": from_, "to": to_, "events": events}
 
 
 # ─── Notes (Phase 12 / D028 v2 — vault files are the truth) ────────────

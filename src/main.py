@@ -14,6 +14,7 @@ from src.config import load_config
 from src.database import init_database
 from src.routers import health, machines, projects_overview, schedule, sync, tasks
 from src.routers import v1 as v1_router
+from src.routers import events as events_router
 from src.routers import agents as agents_router
 from src.routers import devices as devices_router
 from src.routers import ai as ai_router
@@ -39,6 +40,15 @@ async def lifespan(app: FastAPI):
     import asyncio
 
     restored = await rebuild_scheduler_from_db(db, config)
+
+    # V-065a: MKCOL new writable calendar collections (e.g. personal)
+    # before anything reads or writes the registry.
+    from src.calendars import provision_writable
+
+    try:
+        await provision_writable(config)
+    except Exception:  # never block startup on Radicale being down
+        logging.getLogger("vault").warning("calendar provisioning skipped (Radicale unavailable?)", exc_info=True)
 
     # Reconcile: verify active schedule relationships against Radicale
     from src.routers.schedule import reconcile_schedules
@@ -193,6 +203,7 @@ async def token_auth(request: Request, call_next):
 
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(v1_router.router, prefix="/v1", tags=["kompakt-v1"])
+app.include_router(events_router.router, prefix="/v1", tags=["kompakt-events"])
 app.include_router(agents_router.router, prefix="/v1", tags=["kompakt-agents"])
 app.include_router(devices_router.router, prefix="/v1", tags=["kompakt-devices"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])

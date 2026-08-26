@@ -12,6 +12,24 @@ radicale:
   password: "${RADICALE_PASSWORD}"
   calendar: "vault-time-blocks"
 
+# V-065a calendars registry — reads fan out across these; writes are
+# rejected (403) unless writable: true. Absent → defaults derived from
+# radicale.calendar + ics_subscriptions.
+calendars:
+  - id: "time-blocks"
+    collection: "vault-time-blocks"
+    display_name: "Vault Time Blocks"
+    symbol: "\u25AA"      # ▪
+    writable: true
+  - id: "personal"
+    collection: "personal"
+    display_name: "Personal"
+    symbol: "\u25CF"      # ●
+    writable: true
+    provision: true       # MKCOL at startup if missing
+  # read-only replicas (e.g. ICS subscription collections) go here with
+  # writable: false — enforced by the API, never written.
+
 ntfy:
   url: "http://127.0.0.1:8090"
   topic: "vault-reminders"

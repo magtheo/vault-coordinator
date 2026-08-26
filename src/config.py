@@ -27,6 +27,24 @@ class RadicaleConfig(BaseModel):
     calendar: str = "vault-time-blocks"
 
 
+class CalendarEntry(BaseModel):
+    """V-065a calendars registry entry — one Radicale collection.
+
+    `writable` is the authz flag: the API rejects writes (403) to any
+    calendar not marked writable — read-only replicas (SA) are protected
+    by enforcement, not convention (AGENTS.md principle 5, revised).
+    `provision` MKCOLs the collection at startup if missing (new writable
+    calendars only; existing collections and replicas are never touched).
+    """
+
+    id: str                      # stable registry id: "time-blocks", "personal", "sa"
+    collection: str              # Radicale collection path segment
+    display_name: str
+    symbol: str = "▪"            # e-ink marker shown beside events
+    writable: bool = False
+    provision: bool = False
+
+
 class NtfyConfig(BaseModel):
     url: str
     topic: str
@@ -209,6 +227,9 @@ class AppConfig(BaseModel):
     machines: list[MachineConfig] = []
     machines_poll_seconds: int = 30
     ics_subscriptions: list[IcsSubscription] = []
+    # V-065a: explicit calendars registry. Empty (default) → derived from
+    # radicale.calendar + ics_subscriptions in src.calendars (back-compat).
+    calendars: list[CalendarEntry] = []
     vault: VaultConfig = VaultConfig()
     notes: NotesConfig = NotesConfig()
     ai: AIConfig = AIConfig()

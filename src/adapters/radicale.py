@@ -67,6 +67,27 @@ async def get_event(
         return resp.text
 
 
+async def put_event_text(
+    radicale_url: str,
+    username: str,
+    password: str,
+    calendar: str,
+    uid: str,
+    ical: str,
+) -> None:
+    """PUT raw iCalendar text for a single resource (generic event write)."""
+    event_url = f"{radicale_url}/{username}/{calendar}/{uid}.ics"
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            event_url,
+            content=ical,
+            headers={"Content-Type": "text/calendar"},
+            auth=(username, password),
+        )
+        if resp.status_code not in (200, 201, 204):
+            raise RuntimeError(f"Radicale PUT failed: {resp.status_code} {resp.text}")
+
+
 async def delete_event(
     radicale_url: str,
     username: str,
@@ -79,6 +100,45 @@ async def delete_event(
     async with httpx.AsyncClient() as client:
         resp = await client.delete(event_url, auth=(username, password))
         return resp.status_code in (200, 204, 404)
+
+
+async def ensure_collection(
+    radicale_url: str,
+    username: str,
+    password: str,
+    collection: str,
+    display_name: str,
+    color: str = "#43A047",
+) -> bool:
+    """Create a calendar collection if missing (V-065a provisioning).
+
+    Returns True if created, False if it already existed (405).
+    Any other status raises.
+    """
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<create xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" '
+        'xmlns:A="http://apple.com/ns/ical/">'
+        "<set><prop>"
+        "<resourcetype><collection/><C:calendar/></resourcetype>"
+        f"<displayname>{display_name}</displayname>"
+        f"<A:calendar-color>{color}</A:calendar-color>"
+        "</prop></set></create>"
+    )
+    url = f"{radicale_url}/{username}/{collection}/"
+    async with httpx.AsyncClient() as client:
+        resp = await client.request(
+            "MKCOL",
+            url,
+            content=xml,
+            headers={"Content-Type": "application/xml"},
+            auth=(username, password),
+        )
+    if resp.status_code == 405:
+        return False
+    if resp.status_code != 201:
+        raise RuntimeError(f"MKCOL {collection}: HTTP {resp.status_code}")
+    return True
 
 
 async def get_events_range(
