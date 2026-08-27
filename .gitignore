@@ -34,3 +34,5 @@ Thumbs.db
 
 # Alembic
 alembic/versions/__pycache__/
+coordinator.db-shm
+coordinator.db-wal
