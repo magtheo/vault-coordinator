@@ -59,6 +59,11 @@ def upsert_entity(
         """,
         (eid, entity_type, external_alias, display_name, source_system, now, raw_json),
     )
+    # V-067: an entity observed upstream again is by definition not deleted —
+    # clear any tombstone so revived entities rejoin read paths immediately.
+    db.execute(
+        "DELETE FROM entity_tombstones WHERE external_alias = ?", (external_alias,)
+    )
     db.commit()
 
     row = db.execute(

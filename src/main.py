@@ -62,6 +62,11 @@ async def lifespan(app: FastAPI):
 
     ics_jobs = start_ics_sync_jobs(config)
 
+    # V-067: scheduled entity sync (Vikunja + repo TASKS.md → entity cache)
+    from src.entity_sync import start_entity_sync_jobs
+
+    entity_sync_jobs = start_entity_sync_jobs(config)
+
     # Notes sweep jobs (scratchpad → inbox sorter, V-060b)
     from src.notes_sorter import start_notes_sweep_jobs
 
