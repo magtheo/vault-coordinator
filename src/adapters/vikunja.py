@@ -5,31 +5,53 @@ import sqlite3
 
 import httpx
 
-from src.models import upsert_entity, update_sync_state
+from src.models import create_tombstone, update_sync_state, upsert_entity
+
+PAGE_SIZE = 100
 
 
 async def sync_vikunja(
     vikunja_url: str,
     vikunja_token: str,
     db: sqlite3.Connection,
-) -> int:
-    """Fetch all tasks from Vikunja, upsert as projected entities.
-    Returns number of tasks synced."""
+    client: httpx.AsyncClient | None = None,
+) -> dict:
+    """Fetch ALL tasks from Vikunja (paginated, incl. done), upsert as
+    projected entities, tombstone cached entities gone from upstream.
+
+    V-067 semantics:
+    - done tasks are upserted too (raw_data carries ``done``) so completions
+      made upstream actually propagate — skipping them left stale open ghosts.
+    - cached aliases absent from the upstream set are tombstoned so deletions
+      propagate. ``create_tombstone`` also removes the entity row.
+    - a previously tombstoned alias reappearing upstream is revived
+      (``upsert_entity`` clears the tombstone).
+
+    Returns {"upserted": n, "gone": m} (gone = tombstoned this run).
+    """
+    own_client = client is None
+    if client is None:
+        client = httpx.AsyncClient()
     try:
-        async with httpx.AsyncClient() as client:
+        tasks: list[dict] = []
+        page = 1
+        while True:
             resp = await client.get(
                 f"{vikunja_url}/tasks",
                 headers={"Authorization": f"Bearer {vikunja_token}"},
-                params={"per_page": 100},
+                params={"per_page": PAGE_SIZE, "page": page},
             )
             resp.raise_for_status()
-            tasks = resp.json()
+            batch = resp.json()
+            tasks.extend(batch)
+            if len(batch) < PAGE_SIZE:
+                break
+            page += 1
 
-        count = 0
+        upstream: dict[str, dict] = {}
         for task in tasks:
-            if task.get("done"):
-                continue
             alias = f"vikunja:local:task:{task['id']}"
+            upstream[alias] = task
             upsert_entity(
                 db,
                 entity_type="vikunja_task",
@@ -38,14 +60,31 @@ async def sync_vikunja(
                 source_system="vikunja",
                 raw_data=task,
             )
-            count += 1
+
+        gone = 0
+        cached = db.execute(
+            """
+            SELECT external_alias FROM entities
+            WHERE source_system = 'vikunja' AND entity_type = 'vikunja_task'
+            """
+        ).fetchall()
+        for row in cached:
+            alias = row["external_alias"]
+            if alias not in upstream:
+                create_tombstone(
+                    db, alias, "vikunja_task", "vikunja", reason="deleted_upstream"
+                )
+                gone += 1
 
         update_sync_state(db, "vikunja", success=True)
-        return count
+        return {"upserted": len(upstream), "gone": gone}
 
     except Exception as e:
         update_sync_state(db, "vikunja", success=False, error=str(e))
         raise
+    finally:
+        if own_client:
+            await client.aclose()
 
 
 # ─── Write commands — route to Vikunja API as authoritative owner ──────

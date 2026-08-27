@@ -126,11 +126,42 @@ async def capabilities():
 
 
 @router.get("/status")
-async def status():
+async def status(request: Request, db=Depends(get_db)):
+    from datetime import datetime, timezone
+
+    def _entity_sync_block() -> dict:
+        """V-067: per-source cache freshness, computed server-side so
+        clients never own threshold logic."""
+        rows = db.execute(
+            """
+            SELECT source_system, last_success, consecutive_failures
+            FROM sync_state WHERE source_system IN ('vikunja', 'git')
+            """
+        ).fetchall()
+        interval = int(getattr(request.app.state.config, "sync_interval_seconds", 300))
+        now = datetime.now(timezone.utc)
+        sources: dict[str, dict] = {}
+        for r in rows:
+            age = None
+            if r["last_success"]:
+                try:
+                    last = datetime.fromisoformat(r["last_success"])
+                    age = max(0, int((now - last).total_seconds()))
+                except ValueError:
+                    pass
+            sources[r["source_system"]] = {
+                "last_success": r["last_success"],
+                "age_s": age,
+                "stale": age is None or age > 2 * interval,
+                "consecutive_failures": r["consecutive_failures"],
+            }
+        return {"interval_s": interval, "sources": sources}
+
     return {
         "healthy": True,
         "server_time": _now_iso(),
         "version": "0.1.1",
+        "entity_sync": _entity_sync_block(),
     }
 
 

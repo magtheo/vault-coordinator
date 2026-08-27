@@ -80,9 +80,17 @@ def sync_repo(
     repo_name: str,
     repo_path: str,
     db: sqlite3.Connection,
-) -> int:
-    """Parse TASKS.md from a repo, record provenance, upsert entities.
-    Returns number of tasks synced."""
+) -> dict:
+    """Parse TASKS.md from a repo, record provenance, upsert entities,
+    tombstone cached entities no longer present in TASKS.md (V-067).
+
+    Done (``[x]``) tasks are upserted too so completions propagate;
+    entries removed from TASKS.md are tombstoned so deletions propagate.
+
+    Returns {"upserted": n, "gone": m} (gone = tombstoned this run).
+    """
+    from src.models import create_tombstone
+
     try:
         tasks_path = Path(repo_path) / "TASKS.md"
         tasks = parse_tasks_md(tasks_path)
@@ -99,11 +107,11 @@ def sync_repo(
             (repo_id, branch, commit, int(is_dirty), now, len(tasks)),
         )
 
-        count = 0
+        prefix = f"repo:{repo_id}:task:"
+        upstream: set[str] = set()
         for task in tasks:
-            if task["done"]:
-                continue
-            alias = f"repo:{repo_id}:task:{task['id']}"
+            alias = prefix + task["id"]
+            upstream.add(alias)
             display = task["title"]
             if task["description"]:
                 display = f"{task['title']} — {task['description']}"
@@ -123,23 +131,28 @@ def sync_repo(
                     "dirty": is_dirty,
                 },
             )
-            count += 1
+
+        gone = 0
+        cached = db.execute(
+            """
+            SELECT external_alias FROM entities
+            WHERE entity_type = 'repo_task' AND external_alias LIKE ?
+            """,
+            (prefix + "%",),
+        ).fetchall()
+        for row in cached:
+            alias = row["external_alias"]
+            if alias not in upstream:
+                create_tombstone(
+                    db, alias, "repo_task", "git", reason="deleted_upstream"
+                )
+                gone += 1
 
         db.commit()
         update_sync_state(db, "git", success=True)
-        return count
+        return {"upserted": len(upstream), "gone": gone}
 
     except Exception as e:
         update_sync_state(db, "git", success=False, error=str(e))
         raise
 
-
-def sync_all_repos(repos: list[dict], db: sqlite3.Connection) -> dict:
-    """Sync all configured repos. Returns {repo_id: task_count}."""
-    results = {}
-    for repo in repos:
-        count = sync_repo(
-            repo["id"], repo["name"], repo["path"], db
-        )
-        results[repo["id"]] = count
-    return results
