@@ -470,6 +470,19 @@ def create_tombstone(
     reason: str = "deleted_upstream",
 ) -> None:
     """Record that an entity was deleted from its authoritative source."""
+    # Relationships reference entities(id) with no ON DELETE action —
+    # rows pointing at a deleted entity must go first or the FK blocks
+    # the entity delete (hit live in V-067 E2E; this path was previously
+    # unexercised). A relationship to a deleted endpoint is dead by
+    # definition, FK or no FK.
+    row = db.execute(
+        "SELECT id FROM entities WHERE external_alias = ?", (external_alias,)
+    ).fetchone()
+    if row is not None:
+        db.execute(
+            "DELETE FROM relationships WHERE source_id = ? OR target_id = ?",
+            (row["id"], row["id"]),
+        )
     db.execute(
         """
         INSERT OR REPLACE INTO entity_tombstones
@@ -479,9 +492,7 @@ def create_tombstone(
         (external_alias, entity_type, source_system, _now_iso(), reason),
     )
     # Remove from active entities
-    db.execute(
-        "DELETE FROM entities WHERE external_alias = ?", (external_alias,)
-    )
+    db.execute("DELETE FROM entities WHERE external_alias = ?", (external_alias,))
     db.commit()
 
 

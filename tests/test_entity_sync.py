@@ -308,6 +308,28 @@ def test_wire_contracts():
     db.close()
 
 
+def test_tombstone_fk_relationships():
+    print("create_tombstone with relationship children (FK regression)")
+    db, _ = fresh_db()
+    a = upsert_entity(db, "vikunja_task", "vikunja:local:task:1", "A", "vikunja", {})
+    b = upsert_entity(db, "vikunja_task", "vikunja:local:task:2", "B", "vikunja", {})
+    db.execute(
+        "INSERT INTO relationships (id, rel_type, source_id, target_id, created_at) VALUES ('r1', 'schedules', ?, ?, ?)",
+        (a["id"], b["id"], "2026-08-27T00:00:00+00:00"),
+    )
+    db.commit()
+    create_tombstone(db, "vikunja:local:task:1", "vikunja_task", "vikunja")
+    check("entity tombstoned", db.execute(
+        "SELECT COUNT(*) c FROM entities WHERE external_alias='vikunja:local:task:1'"
+    ).fetchone()["c"] == 0)
+    check("dead relationship removed, survivor kept", db.execute(
+        "SELECT COUNT(*) c FROM relationships WHERE id='r1'"
+    ).fetchone()["c"] == 0 and db.execute(
+        "SELECT COUNT(*) c FROM entities WHERE external_alias='vikunja:local:task:2'"
+    ).fetchone()["c"] == 1)
+    db.close()
+
+
 if __name__ == "__main__":
     test_vikunja_sync()
     test_vikunja_pagination()
@@ -316,5 +338,6 @@ if __name__ == "__main__":
     test_run_all_sources_isolation()
     test_backoff()
     test_wire_contracts()
+    test_tombstone_fk_relationships()
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)
