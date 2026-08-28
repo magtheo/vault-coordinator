@@ -35,7 +35,7 @@ from src.adapters.vault import append_scratchpad as _vault_append_scratchpad
 from src.adapters.vault import list_vault_projects
 from src.adapters.vault import slugify as _vault_slugify
 from src.adapters.vikunja import create_task as _vikunja_create_task
-from src.auth import require_capability
+from src.auth import get_principal, require_capability
 from src.capture import interpret as _interpret_text
 from src.database import get_db
 from src.llm import LlmConfig, chat_completion
@@ -117,12 +117,23 @@ def _norm_ts(value: str | None) -> str | None:
 
 
 @router.get("/capabilities")
-async def capabilities():
-    return {
+async def capabilities(request: Request):
+    out = {
         "server_protocol": PROTOCOL_VERSION,
         "minimum_client_protocol": MINIMUM_CLIENT_PROTOCOL,
         "features": FEATURES,
     }
+    # V-069: a device principal sees its own grants so the client can
+    # gate/degrade surfaces locally (T-024). Admin and auth-disabled
+    # (no principal) requests keep the historical shape — the app treats
+    # an absent `granted` as "not applicable", never "nothing granted".
+    principal = get_principal(request)
+    if principal is not None and principal.get("type") == "device":
+        out["granted"] = {
+            "device_id": principal.get("device_id"),
+            "capabilities": principal.get("capabilities", []),
+        }
+    return out
 
 
 @router.get("/status")
