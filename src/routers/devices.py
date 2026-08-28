@@ -41,11 +41,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from src.auth import (
-    DEFAULT_DEVICE_CAPABILITIES,
+    CapabilityError,
     VALID_TRUST_CLASSES,
     device_wire,
     hash_token,
     require_admin,
+    resolve_capabilities,
 )
 from src.database import get_db
 
@@ -204,8 +205,12 @@ async def activate(device_id: str, body: ActivateBody, db=Depends(get_db)):
 
 
 class ApproveBody(BaseModel):
+    """V-066: name a bundle; raw lists only behind an explicit override."""
+
     trust_class: str = "low"
-    capabilities: list[str] | None = None
+    bundle: str | None = None  # "standard" | "standard+writes"
+    capabilities: list[str] | None = None  # raw — requires capabilities_override
+    capabilities_override: bool = False
 
 
 @router.get("/admin/devices")
@@ -230,7 +235,7 @@ async def admin_get_device(device_id: str, request: Request, db=Depends(get_db))
 async def admin_approve_device(
     device_id: str, body: ApproveBody, request: Request, db=Depends(get_db)
 ):
-    """pending → active with a capability set (default: all Class-1 reads).
+    """pending → active with a capability bundle (default: standard).
     Re-approving a revoked device re-activates it (fresh token on next
     activate — the old token hash stays invalid until replaced)."""
     require_admin(request)
@@ -239,7 +244,12 @@ async def admin_approve_device(
             status_code=422,
             detail=f"trust_class must be one of {sorted(VALID_TRUST_CLASSES)}",
         )
-    caps = body.capabilities if body.capabilities is not None else DEFAULT_DEVICE_CAPABILITIES
+    try:
+        caps = resolve_capabilities(
+            body.bundle, body.capabilities, body.capabilities_override
+        )
+    except CapabilityError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     import json
 
     row = db.execute(
