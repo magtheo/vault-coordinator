@@ -58,6 +58,57 @@ DEFAULT_DEVICE_CAPABILITIES = [
     "calendar.write",
 ]
 
+# V-066: named capability bundles for device approval. Hand-curated
+# lists lose even at n=1 device — three omission strikes (voice.transcribe
+# T-021, calendar.write T-023b, project.read Aug 27 → /v1/projects 403 on
+# every project-joined app surface). Approval names a bundle; raw lists
+# are an explicit escape hatch, not a convenience.
+#
+# NOTE: there is no task.write enforcement point — device task creation
+# flows through capture.commit (already in DEFAULT). "writes" below are
+# the note/chat/agent surfaces.
+CAPABILITY_BUNDLES: dict[str, list[str]] = {
+    "standard": list(DEFAULT_DEVICE_CAPABILITIES),
+    "standard+writes": [
+        *DEFAULT_DEVICE_CAPABILITIES,
+        "note.write",
+        "chat.write",
+        "agent.write",
+    ],
+}
+
+
+class CapabilityError(ValueError):
+    """Unresolvable capability request (unknown bundle / raw without override)."""
+
+
+def resolve_capabilities(
+    bundle: str | None = None,
+    capabilities: list[str] | None = None,
+    override: bool = False,
+) -> list[str]:
+    """V-066 single resolution path, shared by the approve API and CLI.
+
+    Precedence: bundle > raw capabilities (override-gated) > standard.
+    Raises CapabilityError with an operator-readable message otherwise.
+    """
+    if bundle is not None:
+        if capabilities is not None:
+            raise CapabilityError("provide either bundle or capabilities, not both")
+        if bundle not in CAPABILITY_BUNDLES:
+            raise CapabilityError(
+                f"unknown bundle '{bundle}'; valid: {sorted(CAPABILITY_BUNDLES)}"
+            )
+        return list(CAPABILITY_BUNDLES[bundle])
+    if capabilities is not None:
+        if not override:
+            raise CapabilityError(
+                "raw capability lists require capabilities_override=true "
+                "(use a bundle unless a custom set is truly needed)"
+            )
+        return list(capabilities)
+    return list(CAPABILITY_BUNDLES["standard"])
+
 VALID_TRUST_CLASSES = {"low", "medium", "admin"}
 
 

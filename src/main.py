@@ -21,6 +21,29 @@ from src.routers import ai as ai_router
 from src.routers import vault as vault_router
 
 
+async def _startup_optional(step: str, coro):
+    """V-068: run a startup step that must never abort boot.
+
+    Network-touching setup (reminder rebuild, Radicale reconcile/
+    provisioning, machines warm refresh) degrades to a warning — reads
+    serve from the SQLite cache and need no upstream. Aug 26: the
+    coordinator crash-looped 5× on httpx.ConnectError to Docker-dependent
+    services that were still down post-reboot. Returns the step's value,
+    or None when degraded (count call sites coerce with `or 0`).
+    """
+    import logging
+
+    try:
+        return await coro
+    except Exception:
+        logging.getLogger("vault").warning(
+            "startup step '%s' degraded — continuing without it (upstream unavailable?)",
+            step,
+            exc_info=True,
+        )
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database, config, and scheduler on startup."""
@@ -39,21 +62,22 @@ async def lifespan(app: FastAPI):
     db = get_connection()
     import asyncio
 
-    restored = await rebuild_scheduler_from_db(db, config)
+    restored = await _startup_optional(
+        "rebuild_scheduler_from_db", rebuild_scheduler_from_db(db, config)
+    ) or 0
 
     # V-065a: MKCOL new writable calendar collections (e.g. personal)
     # before anything reads or writes the registry.
     from src.calendars import provision_writable
 
-    try:
-        await provision_writable(config)
-    except Exception:  # never block startup on Radicale being down
-        logging.getLogger("vault").warning("calendar provisioning skipped (Radicale unavailable?)", exc_info=True)
+    await _startup_optional("provision_writable", provision_writable(config))
 
     # Reconcile: verify active schedule relationships against Radicale
     from src.routers.schedule import reconcile_schedules
 
-    orphaned = await reconcile_schedules(db, config)
+    orphaned = await _startup_optional(
+        "reconcile_schedules", reconcile_schedules(db, config)
+    ) or 0
 
     db.close()
 
@@ -79,7 +103,8 @@ async def lifespan(app: FastAPI):
         [m.model_dump() for m in getattr(config, "machines", [])],
         interval=getattr(config, "machines_poll_seconds", 30),
     )
-    await machines_cache.refresh()  # warm before first request
+    # V-068: warm refresh is optional — the background poll loop retries.
+    await _startup_optional("machines_cache.refresh", machines_cache.refresh())
     machines_cache.start()
     app.state.machines_cache = machines_cache
 
