@@ -43,6 +43,9 @@ from src.models import complete_mutation, record_mutation, upsert_entity
 from dataclasses import replace as _dc_replace
 from src import notes as notes_core
 from src.agents.adapters.opencode import SessionBusyError as _SessionBusyError
+from src.agents.adapters.hermes import HermesSessionBusy as _HermesBusy
+from src.agents.adapters.hermes import HermesSessionNotFound as _HermesNotFound
+from src.agents.port import ExecutionState as _ExecState
 from src.agents.registry import get_registry as _get_agent_registry
 from src.chat_scopes import chat_topics as _chat_topics
 from src.chat_scopes import propose_topic as _propose_topic
@@ -847,6 +850,21 @@ async def list_chat_messages(chat_id: str, request: Request, db=Depends(get_db))
             await _workspace_catch_up(db, chat_id, thread, _opencode_backend())
         except Exception as exc:  # noqa: BLE001 — listing must survive
             log.warning("workspace catch-up on messages GET failed: %s", exc)
+    elif (
+        thread["scope_type"] is None
+        and thread["pending_turn"]
+        and request.app.state.config.chat.agent_backend
+    ):
+        # V-074 catch-up: same pull-in for agent-backed general threads.
+        try:
+            reg = _get_agent_registry()
+            if reg is not None and request.app.state.config.chat.agent_backend in reg.available():
+                await _agent_chat_catch_up(
+                    db, chat_id, thread, reg.get(request.app.state.config.chat.agent_backend)
+                )
+                thread = _thread_row(db, chat_id)  # pending_turn may have cleared
+        except Exception as exc:  # noqa: BLE001 — listing must survive
+            log.warning("agent chat catch-up on messages GET failed: %s", exc)
     rows = db.execute(
         "SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at, id",
         (chat_id,),
@@ -1008,6 +1026,26 @@ async def send_chat_message(
         }
         complete_mutation(db, req.request_id, True, result)
         return result
+
+    if (
+        request.app.state.config.chat.agent_backend
+        and thread["scope_type"] is None
+    ):
+        # V-074 (D034): general tier — the full Hermes agent (same brain
+        # as the Telegram lane), one persistent hms_ session per thread.
+        # Returns None when the agent backend is down → fall through to
+        # the classic LLM lane so chat never dead-ends.
+        agent_outcome = await _agent_chat_send(db, request, chat_id, thread, req.text.strip())
+        if agent_outcome is not None:
+            result = {
+                "message": _wire_message(user_msg),
+                "assistant_message": agent_outcome["assistant_message"],
+            }
+            if proposed is not None:
+                result["proposed_topic"] = proposed
+            complete_mutation(db, req.request_id, True, result)
+            return result
+        log.warning("chat agent backend unavailable — general tier fell back to the LLM lane")
 
     history = db.execute(
         "SELECT role, content FROM chat_messages WHERE chat_id = ?"
@@ -1207,6 +1245,138 @@ async def _workspace_send(db, request, chat_id: str, thread, text: str) -> dict:
             "committed": committed,
         },
     }
+
+
+async def _agent_chat_send(db, request, chat_id: str, thread, text: str) -> dict | None:
+    """V-074 (D034): one agent-backed general-chat turn.
+
+    Mirrors _workspace_send (V-063) minus auto-commit: catch up any pending
+    reply, dispatch or resume the thread's Hermes session (hms_ id stored in
+    chat_threads.agent_execution_id — the prefix is what keeps it disjoint
+    from V-063's opencode ids), settle within chat.agent_timeout_s, record
+    the reply. Degrades with honest notes — the user message is already
+    durable; a backend problem must never fail the send.
+
+    Binding rule (chat_workspace §): NO agent_executions row — chat ≠ agent,
+    the watcher/alert loop never fires for a chat turn.
+
+    Returns {"assistant_message": …}, or None when the configured agent
+    backend is unavailable (caller falls back to the plain-LLM lane).
+    """
+    config = request.app.state.config
+    reg = _get_agent_registry()
+    name = config.chat.agent_backend
+    if reg is None or name not in reg.available():
+        return None
+    backend = reg.get(name)
+    _touch_thread(db, chat_id)
+
+    try:
+        if await _agent_chat_catch_up(db, chat_id, thread, backend) == "still-pending":
+            note = "(agent turn still running — message saved, it will be answered after this turn)"
+            return {
+                "assistant_message": _wire_message(
+                    _insert_message(db, chat_id, "assistant", note)
+                )
+            }
+    except Exception as exc:  # noqa: BLE001 — catch-up must never kill the send
+        log.warning("agent chat catch-up failed (%s): %s", chat_id, exc)
+
+    exec_id = thread["agent_execution_id"]
+    if not (exec_id or "").startswith("hms_"):
+        exec_id = None  # V-063 opencode id or empty — mint a fresh session
+    try:
+        if exec_id:
+            await backend.send(exec_id, text)
+        else:
+            execution = await backend.dispatch(text, agent="hermes", project_ref="")
+            exec_id = execution.id
+            db.execute(
+                "UPDATE chat_threads SET agent_execution_id = ? WHERE id = ?",
+                (exec_id, chat_id),
+            )
+            db.commit()
+    except _HermesBusy:
+        note = "(agent turn still running — message saved, it will be answered after this turn)"
+        return {
+            "assistant_message": _wire_message(
+                _insert_message(db, chat_id, "assistant", note)
+            )
+        }
+    except Exception as exc:  # noqa: BLE001 — degrade, never fail the send
+        log.warning("agent chat dispatch/send failed: %s", exc)
+        note = "(agent backend error — message saved, try again next message)"
+        return {
+            "assistant_message": _wire_message(
+                _insert_message(db, chat_id, "assistant", note)
+            )
+        }
+
+    settled = await _ws_wait_for_turn(backend, exec_id, config.chat.agent_timeout_s)
+    reply = None
+    if settled:
+        r = await backend.result(exec_id)
+        if r.outcome in (_ExecState.FAILED, _ExecState.CANCELLED):
+            db.execute("UPDATE chat_threads SET pending_turn = 0 WHERE id = ?", (chat_id,))
+            db.commit()
+            note = f"(agent turn {r.outcome.value} — {r.summary})"
+            return {
+                "assistant_message": _wire_message(
+                    _insert_message(db, chat_id, "assistant", note)
+                )
+            }
+        if r.outcome is _ExecState.SUCCEEDED and r.summary and r.summary not in (
+            "(still running)",
+            "(empty reply)",
+        ):
+            reply = r.summary
+    if reply is None:
+        db.execute("UPDATE chat_threads SET pending_turn = 1 WHERE id = ?", (chat_id,))
+        db.commit()
+        note = "(agent still working — reply will be recorded when it settles)"
+        return {
+            "assistant_message": _wire_message(
+                _insert_message(db, chat_id, "assistant", note)
+            )
+        }
+
+    db.execute("UPDATE chat_threads SET pending_turn = 0 WHERE id = ?", (chat_id,))
+    db.commit()
+    assistant_msg = _insert_message(db, chat_id, "assistant", reply)
+    _touch_thread(db, chat_id)
+    return {"assistant_message": _wire_message(assistant_msg)}
+
+
+async def _agent_chat_catch_up(db, chat_id: str, thread, backend) -> str:
+    """Backfill an agent turn that settled after its budget (V-074).
+
+    Same contract as _workspace_catch_up: "backfilled" (reply recorded),
+    "failed" (terminal without a reply — pending cleared, honest note),
+    "still-pending" (turn genuinely running — caller must not race a send),
+    "none" (nothing to do)."""
+    exec_id = thread["agent_execution_id"] or ""
+    if not thread["pending_turn"] or not exec_id.startswith("hms_"):
+        return "none"
+    execution = await backend.get(exec_id)
+    if execution.state in (_ExecState.RUNNING, _ExecState.QUEUED):
+        return "still-pending"
+    r = await backend.result(exec_id)
+    if r.outcome is _ExecState.SUCCEEDED and r.summary and r.summary not in (
+        "(still running)",
+        "(empty reply)",
+    ):
+        db.execute("UPDATE chat_threads SET pending_turn = 0 WHERE id = ?", (chat_id,))
+        db.commit()
+        _insert_message(db, chat_id, "assistant", r.summary)
+        _touch_thread(db, chat_id)
+        return "backfilled"
+    if r.outcome in (_ExecState.FAILED, _ExecState.CANCELLED):
+        db.execute("UPDATE chat_threads SET pending_turn = 0 WHERE id = ?", (chat_id,))
+        db.commit()
+        note = f"(earlier agent turn {r.outcome.value} — {r.summary})"
+        _insert_message(db, chat_id, "assistant", note)
+        return "failed"
+    return "still-pending"  # placeholder only — turn has not landed
 
 
 class ChatTruncateRequest(BaseModel):

@@ -104,6 +104,15 @@ class ChatConfig(BaseModel):
     max_history: int = 20
     system_prompt: str = ""         # empty → src.llm.DEFAULT_SYSTEM_PROMPT
     workspace_timeout_s: float = 180.0  # V-063: settle ceiling for workspace turns
+    # V-074 (D034): route the GENERAL tier through the full Hermes agent
+    # (same brain as the Telegram lane — memory, tools, per-thread session).
+    # None/absent → classic one-shot LLM lane (src.llm). Topic and workspace
+    # tiers are never agent-backed by this flag.
+    agent_backend: str | None = None
+    # Settle ceiling for agent turns. Must stay UNDER the phone's 120 s
+    # per-IO timeout (RemoteRepositories) — at budget the send returns an
+    # honest pending note and the reply is recorded on catch-up.
+    agent_timeout_s: float = 100.0
 
 
 class VoiceConfig(BaseModel):
