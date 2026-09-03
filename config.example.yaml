@@ -60,6 +60,10 @@ agents:
     model_id: glm-5.2              # provider catalog: glm-4.7|glm-5-turbo|glm-5.2 (glm-5.1 removed)
     provider_id: zai-coding-plan
     default_directory: /tmp        # fallback when project_ref unmapped
+  hermes:                          # V-073/D033 — trusted lane, unsandboxed
+    enabled: true
+    base_url: http://127.0.0.1:8642  # the Hermes agent API server (chat surface host)
+    token: ""                      # bearer only if api_server auth is enabled
   projects:                        # project_ref → per-backend binding
     kodeverket:
       warren_project_id: prj_xxx

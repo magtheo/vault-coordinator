@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from src.agents import projections
+from src.agents.adapters.hermes import HermesSessionBusy, HermesSessionNotFound
 from src.agents.adapters.opencode import SessionBusyError
 from src.agents.port import AgentExecution, UnsupportedOperation
 from src.agents.registry import AgentBackendRegistry, UnknownBackend, get_registry
@@ -40,9 +41,13 @@ def _registry() -> AgentBackendRegistry:
 def _backend_error(exc: Exception) -> HTTPException:
     if isinstance(exc, UnknownBackend):
         return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, (HermesSessionNotFound,)):
+        return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, UnsupportedOperation):
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, SessionBusyError):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, HermesSessionBusy):
         return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, (httpx.HTTPError, httpx.TimeoutException)):
         return HTTPException(status_code=502, detail=f"backend unreachable: {exc}")

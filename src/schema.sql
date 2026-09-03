@@ -218,3 +218,14 @@ CREATE TABLE IF NOT EXISTS agent_run_alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_alerts_unread
     ON agent_run_alerts (read, created_at DESC);
+
+-- ── V-073: hermes adapter — session → current-run mapping ────────────
+-- Hermes mints a new run_<hex> per turn; the hms_<hex> execution id is
+-- stable. Ground truth for get()/cancel()/send() after a coordinator
+-- restart (in-memory maps are gone but the watcher still polls armed
+-- runs). Idempotent CREATE — legacy DBs adopt on next boot.
+CREATE TABLE IF NOT EXISTS hermes_session_runs (
+    session_id TEXT PRIMARY KEY,   -- hms_… execution id
+    run_id     TEXT NOT NULL,      -- current hermes turn run_<hex>
+    updated_at TEXT NOT NULL
+);
