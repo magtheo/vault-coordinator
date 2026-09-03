@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from src.agents.adapters.hermes import HermesBackend, SqliteHermesStateStore
 from src.agents.adapters.opencode import OpenCodeBackend
 from src.agents.adapters.warren import WarrenBackend
 from src.agents.port import AgentBackend
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_PREFIX_BACKEND = {"run_": "warren", "ses_": "opencode"}
+_PREFIX_BACKEND = {"run_": "warren", "ses_": "opencode", "hms_": "hermes"}
 
 
 class UnknownBackend(Exception):
@@ -57,6 +58,12 @@ class AgentBackendRegistry:
                 model_id=cfg.opencode.model_id,
                 project_dirs=project_dirs,
                 on_turn_settled=self._on_turn_settled,
+            )
+        if cfg.hermes.enabled:
+            self._backends["hermes"] = HermesBackend(
+                base_url=cfg.hermes.base_url,
+                token=cfg.hermes.token,
+                state_store=SqliteHermesStateStore(),
             )
 
     # ── lookup ─────────────────────────────────────────────────────────

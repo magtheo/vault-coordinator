@@ -175,6 +175,16 @@ class OpenCodeBackendConfig(BaseModel):
     model_id: str = "glm-5.2"
 
 
+class HermesBackendConfig(BaseModel):
+    """V-073/D033: the Hermes Agent API server (gateway `api_server`) as a
+    third backend — the same process that powers the chat surface
+    (ChatConfig.base_url). Executor-grade: full tool access, own provider
+    credentials. Localhost-only behind the coordinator, like the others."""
+    base_url: str = "http://127.0.0.1:8642"
+    token: str = ""                 # bearer optional when api_server auth is off
+    enabled: bool = False
+
+
 class AgentsProjectMapping(BaseModel):
     """Per-repo backend bindings (repo id → backend-native handles).
 
@@ -198,6 +208,7 @@ class AgentsConfig(BaseModel):
     default_backend: str = "opencode"
     warren: WarrenBackendConfig = WarrenBackendConfig()
     opencode: OpenCodeBackendConfig = OpenCodeBackendConfig()
+    hermes: HermesBackendConfig = HermesBackendConfig()
     projects: dict[str, AgentsProjectMapping] = {}  # repo id → mapping
     # V-057 agent-loop watcher
     poll_seconds: float = 5.0
