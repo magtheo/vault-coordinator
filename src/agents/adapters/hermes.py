@@ -289,7 +289,24 @@ class HermesBackend:
         return self._execution(session)
 
     async def send(self, execution_id: str, message: str) -> AgentExecution:
-        session, _ = self._resolve_run(execution_id)
+        session, run_id = self._resolve_run(execution_id)
+        if session is None and run_id is not None:
+            # V-074: coordinator restart — memory lost but the persisted
+            # mapping knows the execution. Materialize from the API
+            # server's truth (get() re-populates self._sessions).
+            try:
+                await self.get(execution_id)
+            except HermesSessionNotFound:
+                # Run lost (gateway restart) — the SESSION survives
+                # server-side: session continuity is the session id, runs
+                # are ephemeral. Synthesize an IDLE shell and let
+                # _start_turn POST a fresh run into the same session.
+                session = _Session(
+                    exec_id=execution_id, run_id=run_id, state=ExecutionState.IDLE
+                )
+                self._sessions[execution_id] = session
+            else:
+                session = self._sessions.get(execution_id)
         if session is None:
             raise HermesSessionNotFound(f"unknown hermes session {execution_id}")
         if session.state in (ExecutionState.RUNNING, ExecutionState.QUEUED):

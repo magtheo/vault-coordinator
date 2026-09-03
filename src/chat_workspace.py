@@ -44,7 +44,10 @@ async def wait_for_turn(backend, execution_id: str, timeout_s: float) -> bool:
         except Exception as exc:  # noqa: BLE001 — poll errors are transient
             log.warning("workspace chat poll failed (%s): %s", execution_id, exc)
             execution = None
-        if execution is None or execution.state != ExecutionState.RUNNING:
+        if execution is None or execution.state not in (
+            ExecutionState.RUNNING,
+            ExecutionState.QUEUED,  # V-074: hermes maps queued→QUEUED pre-start
+        ):
             return True
         if waited >= timeout_s:
             return False

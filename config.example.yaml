@@ -46,6 +46,18 @@ repos:
 
 sync_interval_seconds: 300
 
+# ── Chat (Phase 7 + V-074) ─────────────────────────────────────────────
+chat:
+  base_url: http://127.0.0.1:8642/v1   # LLM lane: OpenAI-compatible endpoint
+  model: claude-sonnet-4
+  timeout_s: 90
+  # V-074/D034: general-tier engine. "hermes" → every general thread runs
+  # the FULL Hermes agent (memory + tools, one persistent session per
+  # thread — same brain as the Telegram lane). null → classic one-shot
+  # LLM. Topic/workspace tiers are never agent-backed by this flag.
+  agent_backend: null
+  agent_timeout_s: 100             # must stay under the phone's 120s IO timeout
+
 # ── Agents (Phase 8, V-052) — backends must be localhost-only ──────────
 agents:
   enabled: true                    # feature flag; false → /v1/agents* 501
