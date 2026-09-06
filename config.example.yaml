@@ -2,6 +2,10 @@ coordinator:
   port: 8650
   database: coordinator.db
 
+# Base URL of this coordinator as reached by notification recipients.
+# Used for ntfy "view" action links; empty → no view action.
+public_base_url: ""  # e.g. "https://coordinator.example.com"
+
 vikunja:
   url: "http://127.0.0.1:3456/api/v1"
   token: "${VIKUNJA_TOKEN}"
@@ -37,12 +41,12 @@ ntfy:
   password: "${NTFY_PASSWORD}"
 
 repos:
-  - id: "evershift"
-    name: "Evershift"
-    path: "/home/user/Documents/repos/Evershift"
-  - id: "dev-server"
-    name: "dev-server"
-    path: "/home/user/Documents/repos/dev-server"
+  - id: "game-engine"
+    name: "Game Engine"
+    path: "/home/user/repos/game-engine"
+  - id: "agent-platform"
+    name: "Agent Platform"
+    path: "/home/user/repos/agent-platform"
 
 sync_interval_seconds: 300
 
@@ -77,6 +81,6 @@ agents:
     base_url: http://127.0.0.1:8642  # the Hermes agent API server (chat surface host)
     token: ""                      # bearer only if api_server auth is enabled
   projects:                        # project_ref → per-backend binding
-    kodeverket:
+    myproject:
       warren_project_id: prj_xxx
-      opencode_directory: /home/user/Documents/repos/main
+      opencode_directory: /home/user/repos/main

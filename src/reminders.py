@@ -121,7 +121,11 @@ async def _fire_reminder(
 
     title = "Time to work"
     body = f"{task_title}\n{duration_minutes}-minute block"
-    actions = "view, Open Vault, https://dev-server.example.ts.net:8650/"
+    actions = (
+        f"view, Open Vault, {config.public_base_url}/"
+        if config.public_base_url
+        else None
+    )
 
     # Use a fresh DB connection (the request's connection is closed by now)
     from src.database import get_connection

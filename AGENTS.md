@@ -14,8 +14,8 @@ Integration platform connecting external task systems (Vikunja, Git repos) with 
 
 ## Architecture Reference
 
-- **Invariants (frozen v0.1):** `~/Documents/Vault/04 - Knowledge/Vault/Invariants - Integration Platform.md`
-- **Implementation Plan (frozen v0.1):** `~/Documents/Vault/04 - Knowledge/Vault/Vertical Slice Implementation Plan.md`
+- **Invariants (frozen v0.1):** [`docs/design/invariants.md`](docs/design/invariants.md)
+- **Implementation Plan (frozen v0.1):** [`docs/design/vertical-slice-plan.md`](docs/design/vertical-slice-plan.md)
 
 ## Tech Stack
 

@@ -259,6 +259,10 @@ class AppConfig(BaseModel):
     workspaces: WorkspacesConfig = WorkspacesConfig()
     auth_token: str = ""           # bearer token; empty disables auth (dev)
     sync_interval_seconds: int = 300
+    # Base URL of this coordinator as reached by notification recipients
+    # (e.g. https://coordinator.example.com). Used to build "view" action
+    # links in ntfy reminders. Empty → reminders carry no view action.
+    public_base_url: str = ""
 
 
 def _expand_vars(value: str) -> str:
