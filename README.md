@@ -51,10 +51,11 @@ Frontend (React + TypeScript + Vite PWA):
 cd frontend && npm install && npm run dev
 ```
 
-Tests:
+Tests — the suite mixes pytest-style files with plain-module suites
+(run individually, no pytest collection); this runs both:
 
 ```bash
-python -m pytest tests/ -q
+.venv/bin/python scripts/run_all_tests.py
 ```
 
 All credentials are env-var substituted in `config.yaml` (see

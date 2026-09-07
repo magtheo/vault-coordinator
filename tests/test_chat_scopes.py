@@ -44,6 +44,7 @@ def make_config(vault_root: str) -> SimpleNamespace:
         chat=SimpleNamespace(
             base_url="http://stub", api_key=None, model="stub", timeout_s=1,
             max_history=8, system_prompt=None, workspace_timeout_s=1.0,
+            agent_backend=None,
         ),
         vault=SimpleNamespace(root=vault_root),
         notes=SimpleNamespace(

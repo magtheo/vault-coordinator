@@ -55,7 +55,7 @@ def client_with(td: Path):
     app.state.config = SimpleNamespace(
         chat=SimpleNamespace(
             base_url="http://stub", api_key=None, model="stub", timeout_s=1,
-            max_history=8, system_prompt=None,
+            max_history=8, system_prompt=None, agent_backend=None,
         ),
         # T-022d: the send path reads notes.buckets for the propose-chip.
         notes=SimpleNamespace(buckets=[]),
